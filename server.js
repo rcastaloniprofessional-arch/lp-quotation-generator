@@ -857,7 +857,38 @@ app.post('/api/profiles/login', async (req, res) => {
     }
 });
 
-// ── End of Profiles API ───────────────────────────────────────────────────────
+// ── End of Profiles API ─────────────────────────────────────────────────────
+
+// ═══════════════════════════════════════
+// BULK IMPORT API (one-time migration)
+// ═══════════════════════════════════════
+
+app.post("/api/import/profiles", requireAdmin, async (req, res) => {
+    try {
+        const { profiles } = req.body;
+        if (!profiles) return res.status(400).json({ error: "Missing profiles" });
+        await withFileLock(PROFILES_FILE, () => writeJSON(PROFILES_FILE, profiles));
+        res.json({ ok: true, count: Object.keys(profiles).length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/import/quotes", requireAdmin, async (req, res) => {
+    try {
+        const { quotes } = req.body;
+        if (!quotes) return res.status(400).json({ error: "Missing quotes" });
+        await withFileLock(QUOTES_FILE, () => writeJSON(QUOTES_FILE, quotes));
+        res.json({ ok: true, count: Object.keys(quotes).length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/import/serials", requireAdmin, async (req, res) => {
+    try {
+        const { serials } = req.body;
+        if (!serials) return res.status(400).json({ error: "Missing serials" });
+        await withFileLock(SERIALS_FILE, () => writeJSON(SERIALS_FILE, serials));
+        res.json({ ok: true, count: Object.keys(serials).length });
+    } catch (e) { res.status(500).json({ error: e.message }); }
+});
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
