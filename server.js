@@ -5,11 +5,11 @@ const compression = require('compression');
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
-const { execSync } = require('child_process');
 const crypto = require('crypto');
 
 const app = express();
-const PORT = 3000;
+// Railway (and most PaaS) inject the port to listen on via process.env.PORT.
+const PORT = process.env.PORT || 3000;
 
 // ── Middleware (must be before routes) ───────────────────────────────────────
 app.use(compression());          // gzip everything (static files + JSON responses)
@@ -17,19 +17,27 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));  // signature images can be large base64 strings
 app.use(express.static('public'));
 
-// ── Google Drive shared folder path ──────────────────────────────────────────
-const DRIVE_FOLDER = 'G:\\Shared drives\\JOBS (OPERATIONS)\\8_SALES\\1. GENERATED QUOTES';
+// ── Storage paths ─────────────────────────────────────────────────────────────
+// Locally this points at the Google Drive shared folder (Windows). On Railway,
+// set DRIVE_FOLDER to a mounted volume path (e.g. /data/quotes) so generated PDFs
+// and the quotes/serials JSON persist across deploys. Railway's default filesystem
+// is EPHEMERAL — without a mounted volume, anything written here is wiped on every
+// redeploy/restart.
+const DRIVE_FOLDER = process.env.DRIVE_FOLDER
+    || 'G:\\Shared drives\\JOBS (OPERATIONS)\\8_SALES\\1. GENERATED QUOTES';
 const QUOTES_FILE   = path.join(DRIVE_FOLDER, 'lp_quotes.json');
 const SERIALS_FILE  = path.join(DRIVE_FOLDER, 'lp_serials.json');
 
-// Profiles stored locally so admin panel works even before Drive is mounted
-const LOCAL_DATA_DIR = path.join(__dirname, 'data');
+// Profiles stored separately so the admin panel works even before Drive is mounted.
+// On Railway, set DATA_DIR to a mounted volume (e.g. /data) for persistence.
+const LOCAL_DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 const PROFILES_FILE  = path.join(LOCAL_DATA_DIR, 'lp_profiles.json');
-fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true }); // ensure data/ exists
+fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true }); // ensure data dir exists
 
 // ── Admin config ────────────────────────────────────────────────────────────
-// Change ADMIN_PASSWORD to something secure. Token is random per server restart.
-const ADMIN_PASSWORD = '11223';
+// Set ADMIN_PASSWORD in the environment for production (the repo is public — never
+// rely on the hardcoded fallback in a deployed instance). Token is random per restart.
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '11223';
 const ADMIN_TOKEN    = require('crypto').randomBytes(24).toString('hex');
 
 // ── Per-file mutex ────────────────────────────────────────────────────────────
@@ -249,7 +257,11 @@ async function getBrowser() {
 
     browserLaunching = puppeteer.launch({
         headless: 'new',
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        // --disable-dev-shm-usage avoids crashes in containers with a small /dev/shm (Railway/Docker).
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+        // Let Railway/Nixpacks point at a system Chromium via PUPPETEER_EXECUTABLE_PATH.
+        // Falls back to Puppeteer's own bundled Chromium when unset.
+        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
     }).then(browser => {
         browserInstance = browser;
         browser.on('disconnected', () => { browserInstance = null; });
@@ -383,15 +395,10 @@ app.post('/api/generate-quotation', async (req, res) => {
                 console.log(`[PDF SAVE] Company folder: ${companyFolder}`);
                 console.log(`[PDF SAVE] Exists before mkdir: ${fs.existsSync(companyFolder)}`);
 
-                // Use Windows shell mkdir — most reliable method for mapped/network drives
+                // Cross-platform: fs.mkdirSync with recursive works on Linux (Railway),
+                // Windows local, and mapped/network drives alike.
                 if (!fs.existsSync(companyFolder)) {
-                    try {
-                        execSync(`mkdir "${companyFolder}"`, { stdio: 'pipe' });
-                        console.log(`[PDF SAVE] mkdir via shell: done`);
-                    } catch (mkErr) {
-                        console.warn(`[PDF SAVE] shell mkdir failed: ${mkErr.message}, trying fs.mkdirSync...`);
-                        fs.mkdirSync(companyFolder, { recursive: true });
-                    }
+                    fs.mkdirSync(companyFolder, { recursive: true });
                 }
 
                 console.log(`[PDF SAVE] Exists after mkdir: ${fs.existsSync(companyFolder)}`);
