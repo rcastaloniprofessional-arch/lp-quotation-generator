@@ -2,20 +2,129 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>LP SYSTEMS</title>
     <link rel="stylesheet" href="styles.css">
+    <style>
+        /* ── Session bar ── */
+        .session-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #2C3E50;
+            color: white;
+            border-radius: 8px;
+            padding: 10px 14px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            flex-wrap: wrap;
+        }
+        .session-avatar {
+            width: 36px; height: 36px;
+            background: #4A90E2;
+            border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 15px;
+            flex-shrink: 0; color: white;
+        }
+        .session-info { flex: 1; min-width: 0; }
+        .session-name { font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .session-role { font-size: 11px; opacity: 0.65; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .session-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .btn-switch-user {
+            background: rgba(255,255,255,0.12);
+            border: 1px solid rgba(255,255,255,0.25);
+            color: white;
+            border-radius: 5px;
+            padding: 7px 11px;
+            font-size: 12px;
+            font-weight: bold;
+            cursor: pointer;
+            white-space: nowrap;
+            min-height: 36px;
+            touch-action: manipulation;
+        }
+        .btn-switch-user:hover { background: rgba(255,255,255,0.22); }
+
+        /* Locked field */
+        input.locked-field {
+            background: #f4f6f8 !important;
+            color: #555 !important;
+            border: 1px solid #d5dce5 !important;
+            cursor: default !important;
+        }
+
+        /* Sig preview */
+        .sig-preview-box {
+            margin-top: 10px; padding: 10px;
+            background: #f8f9fa; border: 1px dashed #c5d5f0;
+            border-radius: 6px; text-align: center;
+        }
+        .sig-preview-box img { max-height: 60px; max-width: 100%; object-fit: contain; }
+        .sig-preview-box span { font-size: 11px; color: #aaa; }
+
+        /* Page header */
+        .page-header { text-align: center; margin-bottom: 12px; }
+        .page-header img { max-width: min(200px, 55vw); height: auto; margin-bottom: 8px; }
+        .page-header .addr { font-size: 12px; color: #000; line-height: 1.5; }
+        .page-header h2 { font-size: 18px; text-transform: uppercase; margin-top: 14px; color: #2C3E50; letter-spacing: 1px; }
+        @media (min-width: 500px) {
+            .page-header img { max-width: 250px; }
+            .page-header .addr { font-size: 14px; }
+            .page-header h2 { font-size: 20px; }
+        }
+
+        /* History search box */
+        #historySearch { font-size: 16px !important; }
+
+        /* VAT breakdown — app.js controls display via inline style.
+           We only adjust layout on mobile when it IS visible. */
+        #vatBreakdownRow {
+            width: 100%;
+            text-align: right;
+            margin-bottom: 6px;
+            font-size: 13px;
+            color: #555;
+        }
+        @media (max-width: 560px) {
+            #vatBreakdownRow { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+            #vatBreakdownRow span { margin-left: 0 !important; }
+        }
+    </style>
 </head>
 <body>
     <div class="container">
+
         <!-- ── Page Header ── -->
-        <div style="text-align: center; margin-bottom: 10px; font-family: Arial, sans-serif;">
-            <img src="logo.png" alt="Launchpad Logo" style="max-width: 250px; height: auto; margin-bottom: 10px;">
-            <div style="font-size: 14px; color: #000; font-weight: normal; line-height: 1.5;">
+        <div class="page-header">
+            <img src="logo.png" alt="Launchpad Logo" onerror="this.style.display='none'">
+            <div class="addr">
                 Unit 3006 One Corporate Centre Building, Julia Vargas Avenue,<br>
-                Ortigas Center San Antonio Pasig City<br>
+                Ortigas Center San Antonio Pasig City
             </div>
-            <h2 style="font-size: 20px; text-transform: uppercase; margin-top: 20px; color: #2C3E50; letter-spacing: 1px;">Quotation Form</h2>
+            <h2>Quotation Form</h2>
+        </div>
+
+        <!-- ── Session Bar ── -->
+        <div class="session-bar" id="sessionBar">
+            <div class="session-avatar" id="sessionAvatar">?</div>
+            <div class="session-info" id="sessionInfoWrap" style="position:relative;">
+                <!-- In dev mode the name itself is the profile-switcher trigger -->
+                <div class="session-name" id="sessionName" onclick="toggleDevDropdown()">Loading...</div>
+                <div class="session-role" id="sessionRole"></div>
+                <!-- Dev-only profile switcher dropdown, anchored to the name -->
+                <div id="devProfileDropdown" style="
+                    display:none;position:absolute;left:0;top:calc(100% + 6px);
+                    background:white;border:1px solid #e0e0e0;border-radius:8px;
+                    box-shadow:0 8px 24px rgba(0,0,0,0.18);min-width:220px;z-index:999;overflow:hidden;">
+                    <div style="padding:8px 12px 6px;font-size:10px;font-weight:bold;color:#aaa;letter-spacing:0.5px;border-bottom:1px solid #f0f0f0;">SWITCH PROFILE (DEV)</div>
+                    <div id="devProfileList" style="max-height:240px;overflow-y:auto;padding:4px 0;"></div>
+                </div>
+            </div>
+            <div class="session-actions">
+                <button class="btn-switch-user" onclick="openHistory()">Quotes</button>
+                <button class="btn-switch-user" onclick="switchUser()">Log Out</button>
+            </div>
         </div>
 
         <!-- ── Control Number Bar ── -->
@@ -23,7 +132,6 @@
             <span class="ctrl-label">Control #:</span>
             <span class="ctrl-number" id="ctrlDisplay">—</span>
             <span class="ctrl-rev" id="ctrlRevDisplay"></span>
-            <button type="button" class="btn-history" onclick="openHistory()"> Open Previous Quotes</button>
         </div>
 
         <!-- ── History Modal ── -->
@@ -33,13 +141,13 @@
                     <h2>Open Previous Quotes</h2>
                     <button class="btn-close-modal" onclick="closeHistory()">×</button>
                 </div>
-                <div style="padding: 10px 20px 0; border-bottom: 1px solid #e9ecef;">
+                <div style="padding: 10px 16px 0; border-bottom: 1px solid #e9ecef;">
                     <input
                         type="text"
                         id="historySearch"
-                        placeholder="🔍  Search by serial, company, or project..."
+                        placeholder="Search by serial, company, or project..."
                         oninput="renderHistory()"
-                        style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:13px;outline:none;"
+                        style="width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:6px;outline:none;"
                         onfocus="this.style.borderColor='#4A90E2'"
                         onblur="this.style.borderColor='#ddd'"
                     >
@@ -48,62 +156,84 @@
                 <div class="modal-body" id="historyList">
                     <div class="history-empty">No saved quotes yet.</div>
                 </div>
+                <div class="modal-footer" id="historyFooter">
+                    <label class="modal-select-all">
+                        <input type="checkbox" id="selectAllCheck" onchange="toggleSelectAll(this)">
+                        Select all
+                    </label>
+                    <span class="delete-selected-count" id="deleteSelCount"></span>
+                    <button class="btn-delete-selected" id="btnDeleteSelected" onclick="deleteSelected()" disabled>
+                        Delete Selected
+                    </button>
+                </div>
             </div>
         </div>
 
         <form id="form">
+            <!-- ── Sales Personnel ── -->
             <div class="section">
-                <h3>Sales Personnel</h3>
+                <h3>Sales Personnel <span style="font-size:11px;font-weight:normal;color:#4A90E2;">● Auto-filled from your profile</span></h3>
                 <div class="form-grid">
                     <div class="form-group">
-                        <label>Name *</label>
-                        <input type="text" id="salesName" required placeholder="e.g. Juan Dela Cruz">
+                        <label>Name</label>
+                        <input type="text" id="salesName" class="locked-field" readonly>
                     </div>
                     <div class="form-group">
-                        <label>Contact Number *</label>
-                        <input type="text" id="salesContact" required placeholder="e.g. +63912-345-6789">
+                        <label>Contact Number</label>
+                        <input type="text" id="salesContact" class="locked-field" readonly>
                     </div>
                     <div class="form-group">
-                        <label>Position *</label>
-                        <input type="text" id="salesPosition" required placeholder="e.g. Account Manager">
+                        <label>Position</label>
+                        <input type="text" id="salesPosition" class="locked-field" readonly>
                     </div>
                     <div class="form-group">
-                        <label>Email *</label>
-                        <input type="email" id="salesEmail" required placeholder="e.g. juan.delacruz@launchpadph.com">
+                        <label>Email</label>
+                        <input type="email" id="salesEmail" class="locked-field" readonly>
                     </div>
+                </div>
+                <div class="sig-preview-box" id="sigPreviewBox" style="display:none;">
+                    <div style="font-size:11px;font-weight:bold;color:#888;margin-bottom:6px;">E-SIGNATURE ON PDF</div>
+                    <img id="sigPreviewImg" src="" alt="Your e-signature">
+                </div>
+                <div class="sig-preview-box" id="sigMissingBox" style="display:none;">
+                    <span>No e-signature on file. Ask your admin to upload one for your profile.</span>
                 </div>
             </div>
 
+            <!-- ── Client Information ── -->
             <div class="section">
-                <h3>Client Information</h3>
+                <h3 style="display:flex;align-items:center;justify-content:space-between;">
+                    <span>Client Information</span>
+                    <button type="button" class="btn-clear-section" onclick="clearClientInfo()">Clear Fields</button>
+                </h3>
                 <div class="form-grid">
                     <div class="form-group">
                         <label>Company Name *</label>
-                        <input type="text" id="company" required>
+                        <input type="text" id="company" placeholder="Company Name" required>
                     </div>
                     <div class="form-group">
                         <label>Date *</label>
                         <input type="date" id="date" required>
                     </div>
                     <div class="form-group">
-                        <label>Address *</label>
-                        <input type="text" id="address" required>
+                        <label>Address</label>
+                        <input type="text" id="address" placeholder="Company Address">
                     </div>
                     <div class="form-group">
                         <label>Contact No. *</label>
-                        <input type="text" id="tel" required>
+                        <input type="tel" id="tel" placeholder="09123456789" required>
                     </div>
                     <div class="form-group">
                         <label>TIN Number</label>
-                        <input type="text" id="tin">
+                        <input type="text" id="tin" placeholder="###-###-###-#####">
                     </div>
                     <div class="form-group">
                         <label>Attention To *</label>
-                        <input type="text" id="attentionTo" required>
+                        <input type="text" id="attentionTo" placeholder="Client Name" required>
                     </div>
                     <div class="form-group">
                         <label>Lead Time (days)</label>
-                        <input type="number" id="leadTime" value="7">
+                        <input type="number" id="leadTime" value="7" inputmode="numeric">
                     </div>
                     <div class="form-group">
                         <label>Project Name *</label>
@@ -111,7 +241,7 @@
                     </div>
                     <div class="form-group">
                         <label>Payment Terms *</label>
-                        <select id="paymentTerms" required onchange="toggleOtherPayment()" style="padding:10px;border:1px solid #ddd;border-radius:4px;font-size:14px;width:100%;background:white;">
+                        <select id="paymentTerms" required onchange="toggleOtherPayment()" style="padding:10px;border:1px solid #ddd;border-radius:4px;font-size:16px;width:100%;background:white;min-height:44px;">
                             <option value="COD for first time customers">COD for first time customers</option>
                             <option value="15 days">15 days</option>
                             <option value="30 days">30 days</option>
@@ -128,8 +258,12 @@
                 </div>
             </div>
 
+            <!-- ── In-House Items ── -->
             <div class="section">
-                <h3>In-House Items</h3>
+                <h3 style="display:flex;align-items:center;justify-content:space-between;">
+                    <span>In-House Items</span>
+                    <button type="button" class="btn-clear-section" onclick="clearInHouseItems()">Clear Fields</button>
+                </h3>
                 <div class="item-header">
                     <span>Description</span>
                     <span>Size (W × H)</span>
@@ -143,12 +277,16 @@
                 <button type="button" class="btn btn-add" onclick="addItem()">+ Add In-House Item</button>
             </div>
 
+            <!-- ── Outsource Items ── -->
             <div class="section">
-                <h3>Outsource Items <span style="font-size:12px;font-weight:normal;color:#888;">(fixed base price × multipliers)</span></h3>
+                <h3 style="display:flex;align-items:center;justify-content:space-between;">
+                    <span>Outsource Items <span style="font-size:12px;font-weight:normal;color:#888;">(base price × multipliers)</span></span>
+                    <button type="button" class="btn-clear-section" onclick="clearOutsourceItems()">Clear Fields</button>
+                </h3>
                 <div class="item-header">
                     <span>Description</span>
                     <span>Size (W × H)</span>
-                    <span>Unit</span>
+                    <span>UOM</span>
                     <span style="text-align:right;">Unit Price <span style="font-weight:normal;font-size:11px;color:#888;">(auto)</span></span>
                     <span style="text-align:center;">Qty</span>
                     <span style="text-align:right;">Subtotal</span>
@@ -156,21 +294,64 @@
                 </div>
                 <div id="outsourceItems" class="item-container"></div>
                 <button type="button" class="btn btn-add-outsource" onclick="addOutsourceItem()">+ Add Outsource Item</button>
+            </div>
 
+            <!-- ── Flat Rate Items ── -->
+            <div class="section">
+                <h3 style="display:flex;align-items:center;justify-content:space-between;">
+                    <span>Flat Rate Items <span style="font-size:12px;font-weight:normal;color:#888;">(Installation, Delivery…)</span></span>
+                    <button type="button" class="btn-clear-section" onclick="clearFlatRateItems()">Clear Fields</button>
+                </h3>
+                <div class="item-header" style="grid-template-columns: 3fr 130px 75px 130px 40px;">
+                    <span>Description</span>
+                    <span style="text-align:right;">Unit Price</span>
+                    <span style="text-align:center;">Qty</span>
+                    <span style="text-align:right;">Subtotal</span>
+                    <span></span>
+                </div>
+                <div id="flatRateItems" class="item-container"></div>
+                <button type="button" class="btn btn-add-flat" onclick="addFlatRateItem()">+ Add Flat Rate Item</button>
+            </div>
+
+            <!-- ── Grand Total ── -->
+            <div class="section">
                 <div class="grand-total-box">
-                    <!-- VAT toggles -->
-                    <div id="vatToggleRow" style="width:100%;display:flex;align-items:center;justify-content:flex-end;gap:20px;margin-bottom:8px;font-size:14px;">
-                        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;color:#555;font-weight:normal;">
-                            <input type="checkbox" id="includeVatCheck" onchange="calculateTotals()" style="width:16px;height:16px;cursor:pointer;">
-                            Show VAT breakdown in PDF
-                        </label>
-                        <label style="display:flex;align-items:center;gap:7px;cursor:pointer;color:#555;font-weight:normal;">
-                            <input type="checkbox" id="vatExclusiveCheck" onchange="calculateTotals()" style="width:16px;height:16px;cursor:pointer;">
-                            VAT exclusive
-                        </label>
+                    <div>
+                        <!-- Bank details -->
+                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;">
+                            <label style="font-size:13px;font-weight:bold;color:#2c3e50;white-space:nowrap;">Payment Details in PDF:</label>
+                            <div style="position:relative;display:inline-block;width:100%;max-width:280px;" id="bankDropdownWrapper">
+                                <button type="button" id="bankDropdownBtn" onclick="toggleBankDropdown()">
+                                    — Select payment details —
+                                    <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:10px;color:#888;">▼</span>
+                                </button>
+                                <div id="bankDropdownMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:white;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:200;min-width:220px;padding:6px 0;">
+                                    <label style="display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:14px;color:#2c3e50;min-height:48px;">
+                                        <input type="checkbox" value="bdo" class="bank-chk" onchange="updateBankLabel()" style="width:18px;height:18px;cursor:pointer;"> Banco De Oro (BDO)
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:14px;color:#2c3e50;min-height:48px;">
+                                        <input type="checkbox" value="ub" class="bank-chk" onchange="updateBankLabel()" style="width:18px;height:18px;cursor:pointer;"> UnionBank (UB)
+                                    </label>
+                                    <label style="display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:14px;color:#2c3e50;min-height:48px;">
+                                        <input type="checkbox" value="gcash" class="bank-chk" onchange="updateBankLabel()" style="width:18px;height:18px;cursor:pointer;"> GCash
+                                    </label>
+                                </div>
+                            </div>
+                            <input type="hidden" id="bankDetailsSelect">
+                        </div>
+                        <!-- VAT options -->
+                        <div id="vatToggleRow">
+                            <label>
+                                <input type="checkbox" id="includeVatCheck" onchange="calculateTotals()" style="width:18px;height:18px;cursor:pointer;">
+                                Show VAT breakdown in PDF
+                            </label>
+                            <label>
+                                <input type="checkbox" id="vatExclusiveCheck" onchange="calculateTotals()" style="width:18px;height:18px;cursor:pointer;">
+                                VAT exclusive
+                            </label>
+                        </div>
                     </div>
-                    <!-- VAT breakdown (shown only when checked) -->
-                    <div id="vatBreakdownRow" style="display:none;width:100%;text-align:right;margin-bottom:6px;font-size:14px;color:#555;">
+                    <div id="vatBreakdownRow" style="display:none;">
                         <span>Amount before VAT (excl.): <strong id="vatBaseAmount">₱ 0.00</strong></span>
                         <span style="margin-left:20px;">VAT 12% (included): <strong id="vatAmount">₱ 0.00</strong></span>
                     </div>
@@ -179,17 +360,191 @@
                 </div>
             </div>
 
-            <button type="submit" class="btn btn-submit">Generate Quotation PDF</button>
+            <!-- ── Action Buttons ── -->
+            <div style="display:flex;gap:12px;margin-top:4px;">
+                <button type="button" class="btn btn-preview-main" onclick="previewCurrentQuote()">Preview Quote</button>
+                <button type="submit" class="btn btn-submit">Generate Quote</button>
+            </div>
             <div id="loading" class="loading">Generating PDF... Please wait...</div>
         </form>
 
-        <!-- ── Dev Tools (only shown with ?dev=1 in the URL) ── -->
+        <!-- ── Dev Tools ── -->
         <div class="dev-tools" id="devTools">
-            <span class="dev-tools-label">🧪 DEV MODE</span>
+            <span class="dev-tools-label">DEV MODE</span>
             <button type="button" class="btn-dev" onclick="fillSampleData()">Fill Sample Data</button>
             <button type="button" class="btn-dev" onclick="devGeneratePreview()">Preview PDF (no save)</button>
         </div>
     </div>
+
+    <script>
+        let _currentProfile = null;
+        const _IS_DEV = new URLSearchParams(window.location.search).get('dev') === '1';
+
+        (function checkSession() {
+            if (_IS_DEV) {
+                _currentProfile = {
+                    id: '__dev__', name: 'Dev User', position: 'Developer',
+                    contact: '+63900-000-0000', email: 'dev@launchpadph.com', signature: null
+                };
+                return;
+            }
+            try {
+                const raw = sessionStorage.getItem('lp_session');
+                if (!raw) { window.location.href = 'login.html'; return; }
+                _currentProfile = JSON.parse(raw);
+                if (!_currentProfile || !_currentProfile.id) { window.location.href = 'login.html'; return; }
+            } catch { window.location.href = 'login.html'; }
+        })();
+
+        function switchUser() {
+            if (confirm('Log out and return to the login screen?')) {
+                sessionStorage.removeItem('lp_session');
+                window.location.href = 'login.html';
+            }
+        }
+
+        function applyProfile(p) {
+            document.getElementById('sessionAvatar').textContent = (p.name || '?')[0].toUpperCase();
+            document.getElementById('sessionName').textContent   = (p.name || '') + (_IS_DEV ? '  ▾' : '');
+            document.getElementById('sessionRole').textContent   = (p.position || '') + (p.email ? '  ·  ' + p.email : '');
+            document.getElementById('salesName').value     = p.name     || '';
+            document.getElementById('salesContact').value  = p.contact  || '';
+            document.getElementById('salesPosition').value = p.position || '';
+            document.getElementById('salesEmail').value    = p.email    || '';
+            if (p.signature) {
+                document.getElementById('sigPreviewImg').src = p.signature;
+                document.getElementById('sigPreviewBox').style.display = 'block';
+                document.getElementById('sigMissingBox').style.display = 'none';
+            } else {
+                document.getElementById('sigPreviewBox').style.display = 'none';
+                document.getElementById('sigMissingBox').style.display = 'block';
+            }
+        }
+
+        if (_currentProfile) applyProfile(_currentProfile);
+
+        if (_IS_DEV) {
+            document.getElementById('devTools').classList.add('show');
+            const sn = document.getElementById('sessionName');
+            sn.style.cursor = 'pointer';
+            sn.title = 'Switch profile (dev)';
+            sessionStorage.setItem('lp_dev_mode', '1');
+        } else {
+            sessionStorage.removeItem('lp_dev_mode');
+        }
+
+        async function loadDevProfiles() {
+            try {
+                const r = await fetch(window.location.origin + '/api/profiles');
+                const profiles = await r.json();
+                const list = document.getElementById('devProfileList');
+                window._devProfiles = {};
+                profiles.forEach(p => { window._devProfiles[p.id] = p; });
+
+                function makeAllQuotesRow() {
+                    const d = document.createElement('div');
+                    d.style.cssText = 'padding:12px 14px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px;border-bottom:1px solid #f0f0f0;min-height:48px;';
+                    d.onmouseenter = () => d.style.background = '#f4f7fc';
+                    d.onmouseleave = () => d.style.background = '';
+                    d.onclick = () => devSwitchProfile('__dev__');
+                    d.innerHTML = '<div style="width:28px;height:28px;background:#7f5af0;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;color:white;flex-shrink:0;">&#8734;</div>'
+                        + '<div><div style="font-weight:bold;color:#7f5af0;">All Quotes (Dev)</div>'
+                        + '<div style="font-size:11px;color:#aaa;">Show every rep&#39;s history</div></div>';
+                    return d;
+                }
+
+                list.innerHTML = '';
+                list.appendChild(makeAllQuotesRow());
+
+                if (!profiles.length) {
+                    const empty = document.createElement('div');
+                    empty.style.cssText = 'padding:10px 14px;font-size:12px;color:#aaa;';
+                    empty.textContent = 'No profiles found';
+                    list.appendChild(empty);
+                    return;
+                }
+                profiles.forEach(p => {
+                    const d = document.createElement('div');
+                    d.style.cssText = 'padding:12px 14px;cursor:pointer;font-size:13px;color:#2c3e50;display:flex;align-items:center;gap:10px;min-height:48px;';
+                    d.onmouseenter = () => d.style.background = '#f4f7fc';
+                    d.onmouseleave = () => d.style.background = '';
+                    d.onclick = () => devSwitchProfile(p.id);
+                    d.innerHTML = '<div style="width:28px;height:28px;background:#4A90E2;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:12px;color:white;flex-shrink:0;">'
+                        + (p.name || '?')[0].toUpperCase() + '</div>'
+                        + '<div><div style="font-weight:bold;">' + (p.name || '') + '</div>'
+                        + '<div style="font-size:11px;color:#888;">' + (p.position || '') + '</div></div>';
+                    list.appendChild(d);
+                });
+            } catch(e) {
+                document.getElementById('devProfileList').innerHTML =
+                    '<div style="padding:10px 14px;font-size:12px;color:#e74c3c;">Error loading profiles</div>';
+            }
+        }
+
+        function toggleDevDropdown() {
+            if (!_IS_DEV) return;
+            const dd = document.getElementById('devProfileDropdown');
+            dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function devSwitchProfile(id) {
+            let p;
+            if (id === '__dev__') {
+                p = { id: '__dev__', name: 'Dev User', position: 'Developer',
+                      contact: '+63900-000-0000', email: 'dev@launchpadph.com', signature: null };
+            } else {
+                p = window._devProfiles && window._devProfiles[id];
+                if (!p) return;
+            }
+            _currentProfile = p;
+            applyProfile(p);
+            document.getElementById('devProfileDropdown').style.display = 'none';
+            if (document.getElementById('historyModal').classList.contains('open')) renderHistory();
+        }
+
+        if (_IS_DEV) loadDevProfiles();
+
+        document.addEventListener('click', function(e) {
+            const switcher = document.getElementById('sessionInfoWrap');
+            if (switcher && !switcher.contains(e.target)) {
+                const dd = document.getElementById('devProfileDropdown');
+                if (dd) dd.style.display = 'none';
+            }
+            const bankWrapper = document.getElementById('bankDropdownWrapper');
+            if (bankWrapper && !bankWrapper.contains(e.target)) {
+                const menu = document.getElementById('bankDropdownMenu');
+                if (menu) menu.style.display = 'none';
+            }
+        });
+
+        function toggleBankDropdown() {
+            const menu = document.getElementById('bankDropdownMenu');
+            menu.style.display = menu.style.display === 'none' ? 'block' : 'none';
+        }
+
+        function updateBankLabel() {
+            const checked = Array.from(document.querySelectorAll('.bank-chk:checked'));
+            const btn = document.getElementById('bankDropdownBtn');
+            const hidden = document.getElementById('bankDetailsSelect');
+            const labels = { bdo: 'BDO', ub: 'UnionBank', gcash: 'GCash' };
+            if (checked.length === 0) {
+                btn.textContent = '— Select payment details —';
+                btn.style.color = '#aaa';
+                btn.style.borderColor = '#ddd';
+                hidden.value = '';
+            } else {
+                const names = checked.map(c => labels[c.value] || c.value).join(', ');
+                btn.textContent = names;
+                btn.style.color = '#2c3e50';
+                btn.style.borderColor = '#27ae60';
+                hidden.value = checked.map(c => c.value).join(',');
+            }
+            const arrow = document.createElement('span');
+            arrow.style.cssText = 'position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:10px;color:#888;';
+            arrow.textContent = '▼';
+            btn.appendChild(arrow);
+        }
+    </script>
 
     <script src="app.js" defer></script>
 </body>

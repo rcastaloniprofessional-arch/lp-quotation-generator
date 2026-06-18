@@ -33,6 +33,7 @@
         let currentControlNumber = '';
         let currentRevision      = 0;
         let _loadedFromSnapshot  = false;
+        let _loadedStoreKey      = null;   // storeKey of the quote currently loaded (null = new quote)
         let _cachedDb            = null;   // in-memory cache so UI stays snappy
 
         /* Load quotes from server (with cache) */
@@ -61,6 +62,58 @@
             if (_cachedDb) delete _cachedDb[storeKey];
         }
 
+        /* Reset serial for a company key on the server */
+        async function resetSerial(companyKeyStr) {
+            try {
+                await fetch(`${API}/api/serials/${encodeURIComponent(companyKeyStr)}`, { method: 'DELETE' });
+            } catch {}
+        }
+
+        /* After deleting quotes, recalculate serials so they reflect the highest
+           remaining quote number for each company. If a company has no quotes left,
+           its serial is removed entirely so numbering restarts from 1. */
+        async function syncSerialsAfterDelete() {
+            const db = _cachedDb || {};
+
+            // Build a map of companyKey → highest serial number still in DB
+            // storeKey format: Q26_XXXX|companykey|revN
+            // The serial number is the numeric part of the control number (e.g. 0003 → 3)
+            const highestSerial = {};
+            Object.keys(db).forEach(k => {
+                const parts = k.split('|');
+                if (parts.length < 2) return;
+                const ctrlNum  = parts[0]; // e.g. "Q26_0003"
+                const cKey     = parts[1]; // e.g. "toyota"
+                const match    = ctrlNum.match(/Q\d+_(\d+)/);
+                if (!match) return;
+                const num = parseInt(match[1], 10);
+                if (!highestSerial[cKey] || num > highestSerial[cKey]) {
+                    highestSerial[cKey] = num;
+                }
+            });
+
+            // Get all serial keys currently on the server
+            try {
+                const r = await fetch(`${API}/api/serials`);
+                const serials = await r.json();
+
+                for (const key of Object.keys(serials)) {
+                    const correct = highestSerial[key] || 0;
+                    if (correct === 0) {
+                        // No quotes left for this company — remove serial entirely
+                        await resetSerial(key);
+                    } else if (serials[key] !== correct) {
+                        // Set serial to the highest remaining quote number
+                        await fetch(`${API}/api/serials/${encodeURIComponent(key)}`, {
+                            method: 'PUT',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ value: correct })
+                        });
+                    }
+                }
+            } catch {}
+        }
+
         /* Peek next serial for company (no commit) */
         async function peekNextSerial(companyName) {
             try {
@@ -86,6 +139,7 @@
             const serial = await peekNextSerial('');
             currentControlNumber = buildControlNumber(serial);
             currentRevision = 0;
+            _loadedStoreKey = null;   // starting fresh — no existing quote loaded
             refreshCtrlDisplay();
         }
 
@@ -113,7 +167,6 @@
             const items = [];
             document.querySelectorAll('#items .item-wrapper').forEach(wrapper => {
                 const row = wrapper.querySelector('.item-row');
-                const isFlat = wrapper.querySelector('.isFlatFee').checked;
 
                 const multipliers = [];
                 wrapper.querySelectorAll('.multVal').forEach(inp => {
@@ -129,17 +182,32 @@
                     });
                 });
 
+                const manualBtn = wrapper.querySelector('[id^="btnManual"]');
+                const isManual  = manualBtn ? manualBtn.classList.contains('active') : false;
+                const formulaInp = wrapper.querySelector('[id^="manualFormula"]:not([id^="manualFormulaR"])');
+
                 items.push({
                     material:           row.querySelector('input.material').value,
                     sizeW:              row.querySelector('input.sizeW').value,
                     sizeH:              row.querySelector('input.sizeH').value,
                     sizeUnit:           row.querySelector('input.sizeUnit').value,
-                    flatFee:            isFlat,
-                    flatPrice:          row.querySelector('input.flatPrice').value,
                     multipliers,
                     addons,
+                    isManual,
+                    manualFormula:      isManual && formulaInp ? formulaInp.value : '',
                     computedUnitPrice:  row.querySelector('input.price').value,
                     qty:                row.querySelector('input.qty').value
+                });
+            });
+
+            // Capture flat rate items
+            const flatRateItems = [];
+            document.querySelectorAll('#flatRateItems .flat-item-row').forEach(row => {
+                flatRateItems.push({
+                    material:  row.querySelector('input.material').value,
+                    flatPrice: row.querySelector('input.flatPrice').value,
+                    qty:       row.querySelector('input.qty').value,
+                    computedUnitPrice: row.querySelector('input.flatPrice').value
                 });
             });
 
@@ -179,8 +247,10 @@
                 salesContact:  document.getElementById('salesContact').value,
                 salesEmail:    document.getElementById('salesEmail').value,
                 salesPosition: document.getElementById('salesPosition').value,
+                bankDetails:   document.getElementById('bankDetailsSelect')?.value || '',
                 items,
-                outsourceItems
+                outsourceItems,
+                flatRateItems
             };
         }
 
@@ -212,6 +282,16 @@
             document.getElementById('salesContact').value  = snap.salesContact  || '';
             document.getElementById('salesEmail').value    = snap.salesEmail    || '';
             document.getElementById('salesPosition').value = snap.salesPosition || '';
+            const bankSel = document.getElementById('bankDetailsSelect');
+            if (bankSel && snap.bankDetails) {
+                bankSel.value = snap.bankDetails;
+                // Restore checkboxes
+                const saved = snap.bankDetails.split(',');
+                document.querySelectorAll('.bank-chk').forEach(chk => {
+                    chk.checked = saved.includes(chk.value);
+                });
+                if (typeof updateBankLabel === 'function') updateBankLabel();
+            }
 
             // Rebuild items
             document.getElementById('items').innerHTML = '';
@@ -220,6 +300,18 @@
             Object.keys(addonCounters).forEach(k => delete addonCounters[k]);
 
             snap.items.forEach(saved => {
+                // Legacy: old flat fee items migrate to the flat rate section
+                if (saved.flatFee) {
+                    addFlatRateItem();
+                    const fr = document.getElementById('flatRate' + flatRateCount);
+                    if (fr) {
+                        fr.querySelector('input.material').value  = saved.material || '';
+                        fr.querySelector('input.flatPrice').value = saved.flatPrice || saved.computedUnitPrice || 0;
+                        fr.querySelector('input.qty').value       = saved.qty || 1;
+                    }
+                    return; // don't add to in-house section
+                }
+
                 addItem();  // creates a fresh row with itemCount id
                 const id      = itemCount;
                 const wrapper = document.getElementById('item' + id);
@@ -228,14 +320,17 @@
                 row.querySelector('input.material').value  = saved.material  || '';
                 row.querySelector('input.sizeUnit').value  = saved.sizeUnit  || '';
                 row.querySelector('input.qty').value       = saved.qty       || 1;
+                row.querySelector('input.sizeW').value     = saved.sizeW     || '';
+                row.querySelector('input.sizeH').value     = saved.sizeH     || '';
 
-                if (saved.flatFee) {
-                    wrapper.querySelector('.isFlatFee').checked = true;
-                    toggleFlatFee(id);
-                    row.querySelector('input.flatPrice').value = saved.flatPrice || 0;
-                } else {
-                    row.querySelector('input.sizeW').value = saved.sizeW || '';
-                    row.querySelector('input.sizeH').value = saved.sizeH || '';
+                // Restore manual formula if it was active
+                if (saved.isManual && saved.manualFormula) {
+                    const btn = document.getElementById('btnManual' + id);
+                    const formulaRow = document.getElementById('manualFormulaRow' + id);
+                    const formulaInput = document.getElementById('manualFormula' + id);
+                    if (btn) btn.classList.add('active');
+                    if (formulaRow) formulaRow.classList.add('active');
+                    if (formulaInput) formulaInput.value = saved.manualFormula;
                 }
 
                 (saved.multipliers || []).forEach(v => {
@@ -279,8 +374,24 @@
                 });
             });
 
+            // Rebuild flat rate items
+            restoreFlatRateItems(snap.flatRateItems);
             calculateTotals();
             refreshCtrlDisplay();
+        }
+        function restoreFlatRateItems(snapItems) {
+            document.getElementById('flatRateItems').innerHTML = '';
+            flatRateCount = 0;
+            (snapItems || []).forEach(saved => {
+                addFlatRateItem();
+                const row = document.getElementById('flatRate' + flatRateCount);
+                if (row) {
+                    row.querySelector('input.material').value  = saved.material  || '';
+                    row.querySelector('input.flatPrice').value = saved.flatPrice || saved.computedUnitPrice || 0;
+                    row.querySelector('input.qty').value       = saved.qty       || 1;
+                }
+            });
+            calculateTotals();
         }
 
         /* ── Save quote to server (Google Drive) ── */
@@ -288,14 +399,57 @@
             const snap = captureSnapshot();
             snap.revisions = revision;
             snap.lastSaved = new Date().toISOString();
-            const storeKey = currentControlNumber + '|' + companyKey(snap.company);
+            // Each revision gets its own key — nothing is ever overwritten
+            const storeKey = currentControlNumber + '|' + companyKey(snap.company) + '|rev' + revision;
             await saveQuote(storeKey, snap);
+        }
+
+        /* ── Section Clear Functions ── */
+        function clearClientInfo() {
+            if (!confirm('Clear all Client Information fields?')) return;
+            ['company','address','tel','tin','attentionTo','projectName'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.value = '';
+            });
+            document.getElementById('leadTime').value = '7';
+            document.getElementById('date').valueAsDate = new Date();
+            document.getElementById('paymentTerms').value = 'COD for first time customers';
+            document.getElementById('otherPaymentTerms').value = '';
+            document.getElementById('otherPaymentGroup').style.display = 'none';
+            initControlNumber(); // reset control number preview for blank company
+        }
+
+        function clearInHouseItems() {
+            if (!confirm('Remove all In-House items?')) return;
+            document.getElementById('items').innerHTML = '';
+            itemCount = 0;
+            Object.keys(multCounters).forEach(k => delete multCounters[k]);
+            Object.keys(addonCounters).forEach(k => delete addonCounters[k]);
+            calculateTotals();
+        }
+
+        function clearOutsourceItems() {
+            if (!confirm('Remove all Outsource items?')) return;
+            document.getElementById('outsourceItems').innerHTML = '';
+            outsourceCount = 0;
+            Object.keys(outMultCounters).forEach(k => delete outMultCounters[k]);
+            calculateTotals();
+        }
+
+        function clearFlatRateItems() {
+            if (!confirm('Remove all Flat Rate items?')) return;
+            document.getElementById('flatRateItems').innerHTML = '';
+            flatRateCount = 0;
+            calculateTotals();
         }
 
         /* ── History modal ── */
         async function openHistory() {
             document.getElementById('historyModal').classList.add('open');
             document.getElementById('historyList').innerHTML = '<div class="history-empty">Loading...</div>';
+            // Show select-to-delete footer only in dev mode
+            const footer = document.getElementById('historyFooter');
+            if (footer) footer.className = 'modal-footer' + (isDevMode() ? ' dev-visible' : '');
             await loadDB(true); // force refresh from server
             renderHistory();
         }
@@ -314,10 +468,9 @@
             const list  = document.getElementById('historyList');
             const countEl = document.getElementById('historyCount');
             const query = (document.getElementById('historySearch')?.value || '').trim().toLowerCase();
+            const devMode = isDevMode();
 
-            let keys = Object.keys(db).sort((a, b) =>
-                new Date(db[b].lastSaved) - new Date(db[a].lastSaved)
-            );
+            let keys = Object.keys(db);
 
             if (keys.length === 0) {
                 list.innerHTML = '<div class="history-empty">No saved quotes yet.</div>';
@@ -325,70 +478,262 @@
                 return;
             }
 
-            // Filter: match the whole query as a phrase against "serial company project" combined
+            // Filter by current sales rep.
+            // In dev mode: show all ONLY if the __dev__ pseudo-profile is active.
+            // If a real rep profile is selected in the dev switcher, filter to their quotes.
+            // In normal mode: always filter to the logged-in rep.
+            const isAllDevView = devMode && _currentProfile && _currentProfile.id === '__dev__';
+            if (!isAllDevView && _currentProfile && _currentProfile.name) {
+                const myName = _currentProfile.name.trim().toLowerCase();
+                keys = keys.filter(k => (db[k].salesName || '').trim().toLowerCase() === myName);
+            }
+
+            // ── Group by company name (folder), then by controlNumber|companyKey (quote group) ──
+            // storeKey format: Q26_XXXX|companykey|revN
+            const byCompany = {}; // companyName → { baseKey → [storeKeys] }
+            keys.forEach(k => {
+                const snap = db[k];
+                const companyName = (snap.company || '(No Company)').trim();
+                const parts   = k.split('|');
+                const baseKey = parts[0] + '|' + (parts[1] || '');
+                if (!byCompany[companyName]) byCompany[companyName] = {};
+                if (!byCompany[companyName][baseKey]) byCompany[companyName][baseKey] = [];
+                byCompany[companyName][baseKey].push(k);
+            });
+
+            // Sort revisions within each quote group (highest first)
+            Object.values(byCompany).forEach(quoteGroups => {
+                Object.values(quoteGroups).forEach(arr => {
+                    arr.sort((a, b) => {
+                        const ra = parseInt((a.match(/\|rev(\d+)$/) || [,0])[1]);
+                        const rb = parseInt((b.match(/\|rev(\d+)$/) || [,0])[1]);
+                        return rb - ra;
+                    });
+                });
+            });
+
+            // Sort quote groups within each company folder by latest saved (newest first)
+            const sortedQuoteGroups = (quoteGroups) => {
+                return Object.keys(quoteGroups).sort((a, b) => {
+                    const la = db[quoteGroups[a][0]]?.lastSaved || '';
+                    const lb = db[quoteGroups[b][0]]?.lastSaved || '';
+                    return new Date(lb) - new Date(la);
+                });
+            };
+
+            // Sort companies by their most-recently-modified quote
+            let companyNames = Object.keys(byCompany).sort((a, b) => {
+                const latestA = sortedQuoteGroups(byCompany[a])[0];
+                const latestB = sortedQuoteGroups(byCompany[b])[0];
+                const la = latestA ? db[byCompany[a][latestA][0]]?.lastSaved || '' : '';
+                const lb = latestB ? db[byCompany[b][latestB][0]]?.lastSaved || '' : '';
+                return new Date(lb) - new Date(la);
+            });
+
+            const totalQuoteGroups = companyNames.reduce((n, c) => n + Object.keys(byCompany[c]).length, 0);
+
+            // Apply search filter across companies
             if (query) {
-                keys = keys.filter(k => {
-                    const s = db[k];
-                    const haystack = [
-                        (s.controlNumber || k).replace(/_/g, ' '),
-                        s.controlNumber || k,
-                        s.company    || '',
-                        s.projectName|| ''
-                    ].join(' ').toLowerCase();
-                    return haystack.includes(query);
+                companyNames = companyNames.filter(c => {
+                    if (c.toLowerCase().includes(query)) return true;
+                    return Object.values(byCompany[c]).some(revs =>
+                        revs.some(k => {
+                            const s = db[k];
+                            const hay = [s.controlNumber || '', s.company || '', s.projectName || ''].join(' ').toLowerCase();
+                            return hay.includes(query);
+                        })
+                    );
                 });
             }
 
             if (countEl) {
-                const total = Object.keys(db).length;
                 countEl.textContent = query
-                    ? `${keys.length} of ${total} quote${total !== 1 ? 's' : ''} match`
-                    : `${total} quote${total !== 1 ? 's' : ''} total`;
+                    ? `${companyNames.length} of ${Object.keys(byCompany).length} compan${Object.keys(byCompany).length !== 1 ? 'ies' : 'y'} match`
+                    : `${totalQuoteGroups} quote${totalQuoteGroups !== 1 ? 's' : ''} · ${Object.keys(byCompany).length} compan${Object.keys(byCompany).length !== 1 ? 'ies' : 'y'}`;
             }
 
-            if (keys.length === 0) {
+            if (companyNames.length === 0) {
                 list.innerHTML = `<div class="history-empty">No quotes match "<strong>${query}</strong>".</div>`;
                 return;
             }
 
-            list.innerHTML = keys.map(k => {
-                const s   = db[k];
-                const rev = s.revisions > 0 ? `Rev${s.revisions}` : 'Original';
-                const saved = new Date(s.lastSaved).toLocaleString('en-PH', { dateStyle:'medium', timeStyle:'short' });
-                const safeKey = k.replace(/'/g, "\\'");
+            const hl = (text) => {
+                if (!query || !text) return text || '';
+                const idx = text.toLowerCase().indexOf(query);
+                if (idx === -1) return text;
+                return text.slice(0, idx)
+                    + `<mark style="background:#fff3b0;border-radius:2px;padding:0 1px;">${text.slice(idx, idx + query.length)}</mark>`
+                    + text.slice(idx + query.length);
+            };
 
-                const hl = (text) => {
-                    if (!query || !text) return text || '';
-                    const idx = text.toLowerCase().indexOf(query);
-                    if (idx === -1) return text;
-                    return text.slice(0, idx)
-                        + `<mark style="background:#fff3b0;border-radius:2px;padding:0 1px;">${text.slice(idx, idx + query.length)}</mark>`
-                        + text.slice(idx + query.length);
-                };
+            list.innerHTML = companyNames.map(companyName => {
+                const quoteGroups = byCompany[companyName];
+                const groupKeys   = sortedQuoteGroups(quoteGroups);
+                const totalRevs   = groupKeys.length;
 
-                const salesPerson = s.salesName ? `<span style="color:#27ae60;font-size:11px;">👤 ${s.salesName}${s.salesPosition ? ' · ' + s.salesPosition : ''}</span>` : '';
+                // Grab latest snapshot for this company (for "New Quote" pre-fill)
+                const newestGroupKey = groupKeys[0];
+                const newestSnap     = db[quoteGroups[newestGroupKey][0]];
+                const lastModified   = new Date(newestSnap?.lastSaved).toLocaleString('en-PH', { dateStyle:'medium', timeStyle:'short' });
+                const safeCompany    = companyName.replace(/'/g, "\\'");
+
+                // Build quote rows inside folder
+                const quoteRows = groupKeys.map(gk => {
+                    const revKeys      = quoteGroups[gk];
+                    const latestKey    = revKeys[0];
+                    const latest       = db[latestKey];
+                    const hasRevs      = revKeys.length > 1;
+                    const latestRevNum = latest.revisions || 0;
+                    const latestLabel  = latestRevNum > 0 ? `Rev${latestRevNum}` : 'Original';
+                    const safeLatest   = latestKey.replace(/'/g, "\\'");
+                    const saved = new Date(latest.lastSaved).toLocaleString('en-PH', { dateStyle:'medium', timeStyle:'short' });
+                    const salesPerson  = latest.salesName
+                        ? `<span style="color:#27ae60;font-size:11px;">${latest.salesName}${latest.salesPosition ? ' · ' + latest.salesPosition : ''}</span>`
+                        : '';
+
+                    // Delete button — visible to all users for their own quotes
+                    const deleteBtn = `<button class="btn-delete-hist" title="Delete this quote" onclick="deleteQuote(event,'${safeLatest}')">Delete</button>`;
+
+                    // Dev checkboxes
+                    const checkboxHtml = devMode
+                        ? `<input type="checkbox" class="history-checkbox" data-key="${safeLatest}"
+                            onclick="event.stopPropagation(); updateDeleteCount();">`
+                        : '';
+
+                    // Revision dropdown rows
+                    const revDropdownItems = hasRevs ? revKeys.slice(1).map(rk => {
+                        const rs     = db[rk];
+                        const rvNum  = rs.revisions || 0;
+                        const rvLabel = rvNum > 0 ? `Rev${rvNum}` : 'Original';
+                        const rvSaved = new Date(rs.lastSaved).toLocaleString('en-PH', { dateStyle:'medium', timeStyle:'short' });
+                        const safeRk  = rk.replace(/'/g, "\\'");
+                        const devCb   = devMode
+                            ? `<input type="checkbox" class="history-checkbox" data-key="${safeRk}"
+                                onclick="event.stopPropagation(); updateDeleteCount();" style="margin-right:4px;">`
+                            : '';
+                        return `
+                          <div class="history-rev-row" onclick="loadQuote('${safeRk}')" title="Load ${rvLabel}">
+                            ${devCb}
+                            <span class="history-rev-label ${rvNum === 0 ? 'rev-original' : ''}">${rvLabel}</span>
+                            <span class="history-rev-date">Saved: ${rvSaved}</span>
+                            <button class="btn-delete-hist" title="Delete" onclick="deleteQuote(event,'${safeRk}')">Delete</button>
+                          </div>`;
+                    }).join('') : '';
+
+                    const dropdownToggle = hasRevs
+                        ? `<button class="btn-rev-toggle" title="Show all revisions"
+                              onclick="event.stopPropagation(); toggleRevDropdown(this)">▾</button>`
+                        : '';
+
+                    return `
+                      <div class="history-item">
+                        <div class="history-item-top" onclick="loadQuote('${safeLatest}')" style="cursor:pointer;" title="Click to load this quote">
+                          ${checkboxHtml}
+                          <span class="history-ctrl">${hl(latest.controlNumber || latestKey)}</span>
+                          <div class="history-info">
+                            <div class="history-meta">
+                              ${latest.projectName ? `<span style="color:#7f5af0;font-size:11px;">${hl(latest.projectName)}</span> · ` : ''}${salesPerson ? salesPerson + ' · ' : ''}Saved: ${saved}
+                            </div>
+                          </div>
+                          <span class="history-rev ${latestRevNum > 0 ? '' : 'rev-original-badge'}">${latestLabel}</span>
+                          ${dropdownToggle}
+                          ${deleteBtn}
+                        </div>
+                        ${hasRevs ? `<div class="history-rev-dropdown">${revDropdownItems}</div>` : ''}
+                      </div>`;
+                }).join('');
 
                 return `
-                  <div class="history-item" onclick="loadQuote('${safeKey}')" style="cursor:pointer;" title="Click to load this quote">
-                    <div class="history-item-top">
-                      <span class="history-ctrl">${hl(s.controlNumber || k)}</span>
-                      <div class="history-info">
-                        <div class="history-company">${hl(s.company || '(no company)')}</div>
-                        <div class="history-meta">
-                          ${s.projectName ? `<span style="color:#7f5af0;font-size:11px;">📁 ${hl(s.projectName)}</span> · ` : ''}${salesPerson ? salesPerson + ' · ' : ''}Saved: ${saved}
-                        </div>
-                      </div>
-                      <span class="history-rev">${rev}</span>
-                      ${isDevMode() ? `<button class="btn-delete-hist" title="Delete" onclick="deleteQuote(event,'${safeKey}')">🗑</button>` : ''}
+                  <div class="company-folder" id="folder-${btoa(companyName).replace(/[^a-zA-Z0-9]/g,'')}">
+                    <div class="company-folder-header" onclick="toggleFolder(this)">
+                      <span class="folder-company-name">${hl(companyName)}</span>
+                      <span class="folder-meta">Last modified: ${lastModified}</span>
+                      <span class="folder-quote-count">${totalRevs} quote${totalRevs !== 1 ? 's' : ''}</span>
+                      <span class="folder-chevron">▶</span>
+                    </div>
+                    <div class="company-folder-body">
+                      <button class="btn-new-for-company" onclick="newQuoteForCompany('${safeCompany}')">
+                        New quote for ${companyName}
+                      </button>
+                      ${quoteRows}
                     </div>
                   </div>`;
             }).join('');
+        }
+
+        function toggleFolder(header) {
+            header.classList.toggle('open');
+            header.nextElementSibling.classList.toggle('open');
+        }
+
+        function toggleRevDropdown(btn) {
+            const item = btn.closest('.history-item');
+            const dropdown = item.querySelector('.history-rev-dropdown');
+            if (!dropdown) return;
+            const isOpen = dropdown.classList.toggle('open');
+            btn.textContent = isOpen ? '▴' : '▾';
+        }
+
+        /* Pre-fill company info from the most recent quote for that company, then close modal */
+        async function newQuoteForCompany(companyName) {
+            const db = _cachedDb || {};
+            // Find the most recently saved quote for this company
+            const matchingKeys = Object.keys(db).filter(k =>
+                (db[k].company || '').trim().toLowerCase() === companyName.trim().toLowerCase()
+            );
+            if (!matchingKeys.length) { closeHistory(); return; }
+
+            // Pick the most recently saved
+            matchingKeys.sort((a, b) => new Date(db[b].lastSaved) - new Date(db[a].lastSaved));
+            const snap = db[matchingKeys[0]];
+
+            // Reset form fully first (new quote — no loaded key, fresh serial)
+            _loadedStoreKey     = null;
+            _loadedFromSnapshot = false;
+            currentRevision     = 0;
+
+            // Pre-fill company fields only
+            document.getElementById('company').value     = snap.company     || '';
+            document.getElementById('address').value     = snap.address     || '';
+            document.getElementById('tin').value         = snap.tin         || '';
+            document.getElementById('tel').value         = snap.tel         || '';
+            const ptSel  = document.getElementById('paymentTerms');
+            const ptOpts = Array.from(ptSel.options).map(o => o.value);
+            if (snap.paymentTerms && ptOpts.includes(snap.paymentTerms)) {
+                ptSel.value = snap.paymentTerms;
+            } else if (snap.paymentTerms) {
+                ptSel.value = 'others';
+                document.getElementById('otherPaymentTerms').value = snap.paymentTerms;
+            }
+            toggleOtherPayment();
+
+            // Clear project-specific fields
+            document.getElementById('attentionTo').value = '';
+            document.getElementById('projectName').value = '';
+            document.getElementById('leadTime').value    = '7';
+            document.getElementById('date').valueAsDate  = new Date();
+
+            // Clear items
+            document.getElementById('items').innerHTML = '';
+            document.getElementById('outsourceItems').innerHTML = '';
+            itemCount = 0; outsourceCount = 0;
+            Object.keys(multCounters).forEach(k => delete multCounters[k]);
+            Object.keys(addonCounters).forEach(k => delete addonCounters[k]);
+            Object.keys(outMultCounters).forEach(k => delete outMultCounters[k]);
+
+            // Get a fresh serial for this company
+            const serial = await peekNextSerial(snap.company || '');
+            currentControlNumber = buildControlNumber(serial);
+            calculateTotals();
+            refreshCtrlDisplay();
+            closeHistory();
         }
 
         function loadQuote(storeKey) {
             const db   = _cachedDb || {};
             const snap = db[storeKey];
             if (!snap) return;
+            _loadedStoreKey = storeKey;   // remember which saved quote we opened
             restoreSnapshot(snap);
             closeHistory();
         }
@@ -413,8 +758,8 @@
                 salesPosition:  snap.salesPosition  || '',
                 items: (snap.items || []).map(it => ({
                     material:  it.material  || '',
-                    sizeW:     it.flatFee ? '' : (it.sizeW || ''),
-                    sizeH:     it.flatFee ? '' : (it.sizeH || ''),
+                    sizeW:     it.sizeW || '',
+                    sizeH:     it.sizeH || '',
                     sizeUnit:  it.sizeUnit  || '',
                     unitPrice: String(it.computedUnitPrice || 0).replace(/,/g, ''),
                     quantity:  it.qty || 0
@@ -428,6 +773,11 @@
                     multipliers: it.multipliers || [],
                     unitPrice:   String(it.computedUnitPrice || 0).replace(/,/g, ''),
                     quantity:    it.qty || 0
+                })),
+                flatRateItems: (snap.flatRateItems || []).map(it => ({
+                    material:  it.material || '',
+                    unitPrice: String(it.flatPrice || it.computedUnitPrice || 0).replace(/,/g, ''),
+                    quantity:  it.qty || 0
                 }))
             };
         }
@@ -476,6 +826,14 @@
             const label = snap ? `${snap.controlNumber} - ${snap.company}` : storeKey;
             if (!confirm(`Delete quote "${label}"? This cannot be undone.`)) return;
             await deleteQuoteFromServer(storeKey);
+            await syncSerialsAfterDelete();
+            const companyVal = document.getElementById('company').value;
+            if (companyVal) {
+                const serial = await peekNextSerial(companyVal);
+                currentControlNumber = buildControlNumber(serial);
+                currentRevision = 0;
+                refreshCtrlDisplay();
+            }
             renderHistory();
         }
 
@@ -492,11 +850,11 @@
             if (
                 e.target.classList.contains('sizeW') ||
                 e.target.classList.contains('sizeH') ||
-                e.target.classList.contains('flatPrice') ||
                 e.target.classList.contains('qty') ||
                 e.target.classList.contains('multVal') ||
                 e.target.classList.contains('addon-price') ||
-                e.target.classList.contains('addon-qty')
+                e.target.classList.contains('addon-qty') ||
+                e.target.classList.contains('manual-formula-input')
             ) { calculateTotals(); }
         });
 
@@ -531,7 +889,6 @@
                         <span>×</span>
                         <input type="number" step="any" min="0" placeholder="H" class="sizeH">
                     </div>
-                    <input type="number" step="any" min="0" placeholder="Flat Price" class="flatPrice" style="display:none;">
                 </div>
                 <input type="text" placeholder="ft" class="sizeUnit" style="text-align:center;">
                 <input type="text" class="price" readonly placeholder="0.00" style="text-align:right;background:#f0f4ff;color:#2c3e50;font-weight:bold;border:1px solid #c5d5f0;cursor:default;">
@@ -543,19 +900,23 @@
             const multRow = document.createElement('div');
             multRow.className = 'multiplier-row';
             multRow.innerHTML = `
-                <div class="flatfee-toggle">
-                    <label>
-                        <input type="checkbox" class="isFlatFee" onclick="toggleFlatFee(${id})">
-                        No size (flat fee item — e.g. Installation, Delivery)
-                    </label>
-                </div>
                 <div class="size-dependent" id="sizeDependent${id}">
                     <div class="multiplier-tags" id="multTags${id}"></div>
-                    <button type="button" class="btn-add-mult" onclick="addMultiplier(${id})">+ Add Multiplier</button>
-                    <div class="mult-summary" id="multFormula${id}">W × H = Unit Price (add multipliers to add more terms)</div>
+                    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                        <button type="button" class="btn-add-mult" onclick="addMultiplier(${id})">+ Add Multiplier</button>
+                        <button type="button" class="btn-toggle-manual" id="btnManual${id}" onclick="toggleManualFormula(${id})">f(x) Manual Formula</button>
+                    </div>
+                    <div class="mult-summary" id="multFormula${id}">W x H = Unit Price (add multipliers to add more terms)</div>
+                    <div class="manual-formula-row" id="manualFormulaRow${id}">
+                        <span class="manual-formula-label">= </span>
+                        <input type="text" class="manual-formula-input" id="manualFormula${id}"
+                            placeholder="e.g. W*H*250 or W*H*120 + W*H*80"
+                            oninput="calculateTotals()" autocomplete="off" spellcheck="false">
+                        <span class="manual-formula-result" id="manualFormulaResult${id}">—</span>
+                    </div>
                 </div>
                 <div class="addon-section">
-                    <div class="addon-section-title">⚙ Add-on Materials <span style="font-weight:normal;color:#999;">(added to Unit Price, hidden in PDF)</span></div>
+                    <div class="addon-section-title">Add-on Materials <span style="font-weight:normal;color:#999;">(added to Unit Price, hidden in PDF)</span></div>
                     <div class="addon-tags" id="addonTags${id}"></div>
                     <button type="button" class="btn-add-addon" onclick="addAddon(${id})">+ Add-on Material</button>
                     <div class="addon-total-hint" id="addonHint${id}"></div>
@@ -632,27 +993,35 @@
             calculateTotals();
         }
 
-        function toggleFlatFee(id) {
-            const wrapper    = document.getElementById('item' + id);
-            const isFlat     = wrapper.querySelector('.isFlatFee').checked;
-            const sizeSplit  = wrapper.querySelector('.size-split');
-            const flatPrice  = wrapper.querySelector('input.flatPrice');
-            const sizeUnit   = wrapper.querySelector('input.sizeUnit');
-            const sizeDepends = wrapper.querySelector('.size-dependent');
-
-            if (isFlat) {
-                sizeSplit.style.display  = 'none';
-                flatPrice.style.display  = 'block';
-                sizeDepends.style.display = 'none';
-                if (!sizeUnit.value) sizeUnit.value = 'lot';
-            } else {
-                sizeSplit.style.display  = 'flex';
-                flatPrice.style.display  = 'none';
-                sizeDepends.style.display = '';
-                if (sizeUnit.value === 'lot') sizeUnit.value = '';
+        function toggleManualFormula(id) {
+            const btn = document.getElementById('btnManual' + id);
+            const row = document.getElementById('manualFormulaRow' + id);
+            const isActive = btn.classList.toggle('active');
+            row.classList.toggle('active', isActive);
+            // When disabling, clear result label
+            if (!isActive) {
+                const res = document.getElementById('manualFormulaResult' + id);
+                if (res) { res.textContent = '—'; res.className = 'manual-formula-result'; }
             }
             calculateTotals();
         }
+
+        function evalManualFormula(formula, W, H) {
+            // Only allow safe characters: numbers, operators, W, H, spaces, parens, dots
+            const safe = formula.replace(/\s/g, '');
+            if (!/^[0-9WHwh+\-*/().^]+$/.test(safe)) return null;
+            try {
+                // Replace W and H (case-insensitive) with their numeric values
+                const expr = safe
+                    .replace(/[Ww]/g, '(' + W + ')')
+                    .replace(/[Hh]/g, '(' + H + ')');
+                // eslint-disable-next-line no-new-func
+                const result = Function('"use strict"; return (' + expr + ')')();
+                if (!isFinite(result) || isNaN(result)) return null;
+                return result;
+            } catch { return null; }
+        }
+
 
 
         /* ═══════════════════════════════════════════════════════
@@ -739,28 +1108,86 @@
             calculateTotals();
         }
 
+        /* ═══════════════════════════════════════════════════════
+           FLAT RATE ITEM BUILDER
+        ═══════════════════════════════════════════════════════ */
+        let flatRateCount = 0;
+
+        document.getElementById('flatRateItems').addEventListener('input', function(e) {
+            if (
+                e.target.classList.contains('flatPrice') ||
+                e.target.classList.contains('qty')
+            ) { calculateTotals(); }
+        });
+
+        function addFlatRateItem() {
+            flatRateCount++;
+            const id = flatRateCount;
+            const row = document.createElement('div');
+            row.className = 'flat-item-row';
+            row.id = 'flatRate' + id;
+            row.innerHTML = `
+                <input type="text" placeholder="e.g. Installation, Delivery" class="material"
+                    style="width:100%;height:38px;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+                <input type="number" step="any" min="0" placeholder="0.00" class="flatPrice"
+                    style="width:100%;height:38px;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:14px;text-align:right;">
+                <input type="number" min="1" value="1" class="qty"
+                    style="width:100%;height:38px;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:14px;text-align:center;">
+                <input type="text" class="rowTotalAmount" readonly value="0.00"
+                    style="width:100%;height:38px;padding:8px 10px;border:1px solid #ccd1d1;border-radius:4px;font-size:14px;background:#f8f9fa;font-weight:bold;text-align:right;">
+                <button type="button" class="btn-remove" onclick="removeFlatRateItem(${id})">✕</button>
+            `;
+            document.getElementById('flatRateItems').appendChild(row);
+            calculateTotals();
+        }
+
+        function removeFlatRateItem(id) {
+            document.getElementById('flatRate' + id).remove();
+            calculateTotals();
+        }
+
         function calculateTotals() {
             let grandTotal = 0;
             document.querySelectorAll('#items .item-wrapper').forEach(wrapper => {
                 const row    = wrapper.querySelector('.item-row');
-                const isFlat = wrapper.querySelector('.isFlatFee').checked;
                 const qty    = parseFloat(row.querySelector('input.qty').value) || 0;
 
                 let w = 0, h = 0, basePrice = 0;
                 const multParts = [];
 
-                if (isFlat) {
-                    basePrice = parseFloat(row.querySelector('input.flatPrice').value) || 0;
-                } else {
-                    w = parseFloat(row.querySelector('input.sizeW').value) || 0;
-                    h = parseFloat(row.querySelector('input.sizeH').value) || 0;
-                    wrapper.querySelectorAll('.multVal').forEach(inp => {
-                        multParts.push(parseFloat(inp.value) || 0);
-                    });
-                    basePrice = multParts.length > 0
-                        ? multParts.reduce((sum, v) => sum + (w * h * v), 0)
-                        : (w * h);
-                }
+                w = parseFloat(row.querySelector('input.sizeW').value) || 0;
+                h = parseFloat(row.querySelector('input.sizeH').value) || 0;
+
+                // Check if manual formula mode is active
+                const manualBtn = wrapper.querySelector('[id^="btnManual"]');
+                const isManual  = manualBtn && manualBtn.classList.contains('active');
+
+                    if (isManual) {
+                        const formulaInput = wrapper.querySelector('[id^="manualFormula"]:not([id^="manualFormulaR"])');
+                        const resultEl     = wrapper.querySelector('[id^="manualFormulaResult"]');
+                        const formula      = formulaInput ? formulaInput.value.trim() : '';
+                        const result       = formula ? evalManualFormula(formula, w, h) : null;
+                        if (result !== null) {
+                            basePrice = result;
+                            if (resultEl) {
+                                resultEl.textContent = '= ' + result.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                                resultEl.className = 'manual-formula-result';
+                            }
+                        } else {
+                            basePrice = 0;
+                            if (resultEl) {
+                                resultEl.textContent = formula ? 'Invalid' : '—';
+                                resultEl.className = 'manual-formula-result' + (formula ? ' err' : '');
+                            }
+                        }
+                    } else {
+                        wrapper.querySelectorAll('.multVal').forEach(inp => {
+                            multParts.push(parseFloat(inp.value) || 0);
+                        });
+                        basePrice = multParts.length > 0
+                            ? multParts.reduce((sum, v) => sum + (w * h * v), 0)
+                            : (w * h);
+                    }
 
                 let addonTotal = 0;
                 wrapper.querySelectorAll('.addon-tag').forEach(tag => {
@@ -782,13 +1209,16 @@
 
                 const formulaEl = wrapper.querySelector('[id^="multFormula"]');
                 if (formulaEl) {
-                    if (isFlat) {
-                        formulaEl.textContent = `Flat price = ${basePrice.toFixed(2)}`;
+                    const manualBtn2 = wrapper.querySelector('[id^="btnManual"]');
+                    const isManual2  = manualBtn2 && manualBtn2.classList.contains('active');
+                    if (isManual2) {
+                        const fi = wrapper.querySelector('[id^="manualFormula"]:not([id^="manualFormulaR"])');
+                        formulaEl.textContent = fi && fi.value.trim() ? `Formula: ${fi.value.trim()}` : 'Manual formula mode';
                     } else if (multParts.length > 0) {
-                        const terms = multParts.map(v => `(${w} × ${h} × ${v})`).join(' + ');
+                        const terms = multParts.map(v => `(${w} x ${h} x ${v})`).join(' + ');
                         formulaEl.textContent = `${terms} = ${basePrice.toFixed(2)}`;
                     } else {
-                        formulaEl.textContent = 'W × H = Unit Price (add multipliers to add more terms)';
+                        formulaEl.textContent = 'W x H = Unit Price (add multipliers to add more terms)';
                     }
                 }
 
@@ -840,6 +1270,16 @@
                 grandTotal += subtotal;
             });
 
+            // ── Flat rate items ──────────────────────────────────────────
+            document.querySelectorAll('#flatRateItems .flat-item-row').forEach(row => {
+                const price    = parseFloat(row.querySelector('input.flatPrice').value) || 0;
+                const qty      = parseFloat(row.querySelector('input.qty').value) || 0;
+                const subtotal = price * qty;
+                row.querySelector('.rowTotalAmount').value =
+                    subtotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                grandTotal += subtotal;
+            });
+
             document.getElementById('total').textContent =
                 '₱ ' + grandTotal.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -864,11 +1304,202 @@
         /* ═══════════════════════════════════════════════════════
            FORM SUBMIT → Generate PDF
         ═══════════════════════════════════════════════════════ */
+        /* ── Dev: select-to-delete helpers ── */
+        function updateDeleteCount() {
+            const checked = document.querySelectorAll('.history-checkbox:checked');
+            const btn = document.getElementById('btnDeleteSelected');
+            const countEl = document.getElementById('deleteSelCount');
+            const n = checked.length;
+            if (btn) btn.disabled = n === 0;
+            if (countEl) countEl.textContent = n > 0 ? `${n} selected` : '';
+            // Sync select-all checkbox
+            const all = document.querySelectorAll('.history-checkbox');
+            const selAll = document.getElementById('selectAllCheck');
+            if (selAll) selAll.checked = all.length > 0 && checked.length === all.length;
+            // Highlight selected rows
+            document.querySelectorAll('.history-item').forEach(item => {
+                const cb = item.querySelector('.history-checkbox');
+                item.classList.toggle('selected', cb ? cb.checked : false);
+            });
+        }
+
+        function toggleSelectAll(masterCb) {
+            document.querySelectorAll('.history-checkbox').forEach(cb => cb.checked = masterCb.checked);
+            updateDeleteCount();
+        }
+
+        async function deleteSelected() {
+            const checked = Array.from(document.querySelectorAll('.history-checkbox:checked'));
+            if (!checked.length) return;
+            if (!confirm(`Delete ${checked.length} quote${checked.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+            for (const cb of checked) {
+                await deleteQuoteFromServer(cb.dataset.key);
+            }
+            // Reset select-all + count
+            const selAll = document.getElementById('selectAllCheck');
+            if (selAll) selAll.checked = false;
+            const countEl = document.getElementById('deleteSelCount');
+            if (countEl) countEl.textContent = '';
+            const btn = document.getElementById('btnDeleteSelected');
+            if (btn) btn.disabled = true;
+            renderHistory();
+        }
+
+        /* ── Dev: select-to-delete helpers ── */
+        function updateDeleteCount() {
+            const checked = document.querySelectorAll('.history-checkbox:checked');
+            const btn = document.getElementById('btnDeleteSelected');
+            const countEl = document.getElementById('deleteSelCount');
+            const n = checked.length;
+            if (btn) btn.disabled = n === 0;
+            if (countEl) countEl.textContent = n > 0 ? `${n} selected` : '';
+            const all = document.querySelectorAll('.history-checkbox');
+            const selAll = document.getElementById('selectAllCheck');
+            if (selAll) selAll.checked = all.length > 0 && checked.length === all.length;
+            document.querySelectorAll('.history-item').forEach(item => {
+                const cb = item.querySelector('.history-checkbox');
+                item.classList.toggle('selected', cb ? cb.checked : false);
+            });
+        }
+
+        function toggleSelectAll(masterCb) {
+            document.querySelectorAll('.history-checkbox').forEach(cb => cb.checked = masterCb.checked);
+            updateDeleteCount();
+        }
+
+        async function deleteSelected() {
+            const checked = Array.from(document.querySelectorAll('.history-checkbox:checked'));
+            if (!checked.length) return;
+            if (!confirm(`Delete ${checked.length} quote${checked.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+            for (const cb of checked) await deleteQuoteFromServer(cb.dataset.key);
+            // Reset serials for any company that now has no quotes left
+            await syncSerialsAfterDelete();
+            // Also refresh peekNext so the control number display updates
+            const companyVal = document.getElementById('company').value;
+            if (companyVal) {
+                const serial = await peekNextSerial(companyVal);
+                currentControlNumber = buildControlNumber(serial);
+                currentRevision = 0;
+                refreshCtrlDisplay();
+            }
+            const selAll = document.getElementById('selectAllCheck');
+            if (selAll) selAll.checked = false;
+            const countEl = document.getElementById('deleteSelCount');
+            if (countEl) countEl.textContent = '';
+            const btn = document.getElementById('btnDeleteSelected');
+            if (btn) btn.disabled = true;
+            renderHistory();
+        }
+
+        async function devResetSerials() {
+            if (!confirm('Reset ALL serial counters back to zero?\nNext quote will start from Q26_0001 again.')) return;
+            try {
+                const r = await fetch(`${API}/api/serials`, { method: 'DELETE' });
+                if (r.ok) {
+                    // Refresh the control number display
+                    await initControlNumber();
+                    alert('Serials reset! Next quote will be Q26_0001.');
+                } else {
+                    alert('Error resetting serials.');
+                }
+            } catch {
+                alert('Server error.');
+            }
+        }
+
+        /* Block Enter key from submitting — only allow if submit button is focused (via Tab) */
+        document.getElementById('form').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const active = document.activeElement;
+                const isSubmitBtn = active && active.type === 'submit';
+                if (!isSubmitBtn) e.preventDefault();
+            }
+        });
+
+        /* ── Dev: select-to-delete helpers ── */
+        function updateDeleteCount() {
+            const checked = document.querySelectorAll('.history-checkbox:checked');
+            const btn = document.getElementById('btnDeleteSelected');
+            const countEl = document.getElementById('deleteSelCount');
+            const n = checked.length;
+            if (btn) btn.disabled = n === 0;
+            if (countEl) countEl.textContent = n > 0 ? `${n} selected` : '';
+            const all = document.querySelectorAll('.history-checkbox');
+            const selAll = document.getElementById('selectAllCheck');
+            if (selAll) selAll.checked = all.length > 0 && checked.length === all.length;
+            document.querySelectorAll('.history-item').forEach(item => {
+                const cb = item.querySelector('.history-checkbox');
+                item.classList.toggle('selected', cb ? cb.checked : false);
+            });
+        }
+
+        function toggleSelectAll(masterCb) {
+            document.querySelectorAll('.history-checkbox').forEach(cb => cb.checked = masterCb.checked);
+            updateDeleteCount();
+        }
+
+        async function deleteSelected() {
+            const checked = Array.from(document.querySelectorAll('.history-checkbox:checked'));
+            if (!checked.length) return;
+            if (!confirm(`Delete ${checked.length} quote${checked.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
+            for (const cb of checked) await deleteQuoteFromServer(cb.dataset.key);
+            // Reset serials for any company that now has no quotes left
+            await syncSerialsAfterDelete();
+            // Also refresh peekNext so the control number display updates
+            const companyVal = document.getElementById('company').value;
+            if (companyVal) {
+                const serial = await peekNextSerial(companyVal);
+                currentControlNumber = buildControlNumber(serial);
+                currentRevision = 0;
+                refreshCtrlDisplay();
+            }
+            const selAll = document.getElementById('selectAllCheck');
+            if (selAll) selAll.checked = false;
+            const countEl = document.getElementById('deleteSelCount');
+            if (countEl) countEl.textContent = '';
+            const btn = document.getElementById('btnDeleteSelected');
+            if (btn) btn.disabled = true;
+            renderHistory();
+        }
+
+        async function devResetSerials() {
+            if (!confirm('Reset ALL serial counters back to zero?\nNext quote will start from Q26_0001 again.')) return;
+            try {
+                const r = await fetch(`${API}/api/serials`, { method: 'DELETE' });
+                if (r.ok) {
+                    // Refresh the control number display
+                    await initControlNumber();
+                    alert('Serials reset! Next quote will be Q26_0001.');
+                } else {
+                    alert('Error resetting serials.');
+                }
+            } catch {
+                alert('Server error.');
+            }
+        }
+
+        /* Block Enter key from submitting — only allow if submit button is focused (via Tab) */
+        document.getElementById('form').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                const active = document.activeElement;
+                if (!active || active.type !== 'submit') e.preventDefault();
+            }
+        });
+
         document.getElementById('form').addEventListener('submit', async (e) => {
             e.preventDefault();
             document.getElementById('loading').classList.add('show');
 
             const companyVal = document.getElementById('company').value;
+
+            // Validate bank details selection
+            const bankSel = document.getElementById('bankDetailsSelect');
+            if (!bankSel || !bankSel.value) {
+                alert('Please select at least one payment detail to include in the PDF.');
+                document.getElementById('bankDropdownBtn') && (document.getElementById('bankDropdownBtn').style.borderColor = '#e74c3c');
+                document.getElementById('loading').classList.remove('show');
+                return;
+            }
 
             // Warn if no in-house items, but allow proceeding with outsource-only quotes
             const inHouseCount = document.querySelectorAll('#items .item-wrapper').length;
@@ -880,20 +1511,40 @@
                 }
             }
 
-            // Determine revision: check server data for this company+controlNumber
+            // Determine revision: if we loaded from an existing quote, scan by control+company prefix.
+            // Using _loadedStoreKey (set when opening from history) is reliable even if company name
+            // has spacing/capitalisation differences, because we derive the baseKey from the saved
+            // storeKey itself rather than re-computing it from the current form value.
             const db = await loadDB(true);
-            const storeKey = currentControlNumber + '|' + companyKey(companyVal);
-            const existing = db[storeKey];
 
-            if (existing) {
-                // Same company, same control number → revision
-                currentRevision = (existing.revisions || 0) + 1;
+            let baseKey;
+            if (_loadedStoreKey) {
+                // Extract the "Q26_XXXX|companykey" prefix from the original store key
+                const parts = _loadedStoreKey.split('|');
+                baseKey = parts[0] + '|' + parts[1];   // e.g. "Q26_0003|acmecorp"
+            } else {
+                baseKey = currentControlNumber + '|' + companyKey(companyVal);
+            }
+
+            const existingRevs = Object.keys(db).filter(k => k.startsWith(baseKey + '|rev'));
+
+            if (existingRevs.length > 0) {
+                // Find highest revision number among existing entries
+                const maxRev = Math.max(...existingRevs.map(k => {
+                    const m = k.match(/\|rev(\d+)$/);
+                    return m ? parseInt(m[1]) : 0;
+                }));
+                currentRevision = maxRev + 1;
             } else {
                 // New quote → commit serial on server
                 const serial = await commitSerial(companyVal);
                 currentControlNumber = buildControlNumber(serial);
                 currentRevision = 0;
             }
+
+            // After committing, update _loadedStoreKey to the new base so subsequent
+            // re-submissions in the same session correctly detect further revisions.
+            _loadedStoreKey = baseKey + '|rev' + currentRevision;
 
             // Save to Google Drive via server
             await persistQuote(currentRevision);
@@ -915,20 +1566,23 @@
                 salesContact: document.getElementById('salesContact').value,
                 salesEmail:   document.getElementById('salesEmail').value,
                 salesPosition: document.getElementById('salesPosition').value,
+                salesSignature: (_currentProfile && _currentProfile.signature) || null,
+                storeKey:     _loadedStoreKey,
                 items: [],
                 outsourceItems: [],
+                flatRateItems: [],
                 includeVat: document.getElementById('includeVatCheck')?.checked || false,
-                vatExclusive: document.getElementById('vatExclusiveCheck')?.checked || false
+                vatExclusive: document.getElementById('vatExclusiveCheck')?.checked || false,
+                bankDetails: document.getElementById('bankDetailsSelect')?.value || 'all'
             };
 
             document.querySelectorAll('#items .item-wrapper').forEach(wrapper => {
                 const row    = wrapper.querySelector('.item-row');
-                const isFlat = wrapper.querySelector('.isFlatFee').checked;
                 const computedUnitPrice = row.querySelector('input.price').value.replace(/,/g, '') || 0;
                 data.items.push({
                     material:  row.querySelector('input.material').value,
-                    sizeW:     isFlat ? '' : (row.querySelector('input.sizeW').value || 0),
-                    sizeH:     isFlat ? '' : (row.querySelector('input.sizeH').value || 0),
+                    sizeW:     row.querySelector('input.sizeW').value || '',
+                    sizeH:     row.querySelector('input.sizeH').value || '',
                     sizeUnit:  row.querySelector('input.sizeUnit').value,
                     unitPrice: computedUnitPrice,
                     quantity:  row.querySelector('input.qty').value || 0
@@ -950,6 +1604,15 @@
                     multipliers: mults,
                     unitPrice:   computedUnitPrice,
                     quantity:    row.querySelector('input.qty').value || 0
+                });
+            });
+
+            document.querySelectorAll('#flatRateItems .flat-item-row').forEach(row => {
+                const price = row.querySelector('input.flatPrice').value || 0;
+                data.flatRateItems.push({
+                    material:  row.querySelector('input.material').value,
+                    unitPrice: String(price).replace(/,/g, ''),
+                    quantity:  row.querySelector('input.qty').value || 0
                 });
             });
 
@@ -981,7 +1644,7 @@
                 // Show success notice
                 const notice = document.createElement('div');
                 notice.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#2ecc71;color:white;padding:14px 20px;border-radius:8px;font-size:14px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:9999;max-width:320px;';
-                notice.innerHTML = `✅ PDF saved to Drive!<br><span style="font-size:12px;font-weight:normal;opacity:0.9;">${filename}</span>`;
+                notice.innerHTML = `PDF saved to Drive!<br><span style="font-size:12px;font-weight:normal;opacity:0.9;">${filename}</span>`;
                 document.body.appendChild(notice);
                 setTimeout(() => notice.remove(), 5000);
 
@@ -1001,11 +1664,8 @@
            or writing a file into the shared Drive folder.
         ═══════════════════════════════════════════════════════ */
         function isDevMode() {
-            return new URLSearchParams(window.location.search).get('dev') === '1';
-            // To also restrict this to your own machine (hide it from
-            // anyone opening the app via your LAN IP), use instead:
-            // return new URLSearchParams(window.location.search).get('dev') === '1'
-            //     && (location.hostname === 'localhost' || location.hostname === '127.0.0.1');
+            return new URLSearchParams(window.location.search).get('dev') === '1'
+                || sessionStorage.getItem('lp_dev_mode') === '1';
         }
 
         if (isDevMode()) {
@@ -1038,12 +1698,13 @@
             calculateTotals();
         }
 
-        async function devGeneratePreview() {
+        /* ── Preview Quote (no save) — available to all users ── */
+        async function previewCurrentQuote() {
             document.getElementById('loading').classList.add('show');
             try {
                 const data = {
-                    controlNumber:  'DEV-PREVIEW',
-                    revisionNumber: 0,
+                    controlNumber:  currentControlNumber,
+                    revisionNumber: currentRevision,
                     company:      document.getElementById('company').value,
                     address:      document.getElementById('address').value,
                     tin:          document.getElementById('tin').value,
@@ -1057,49 +1718,54 @@
                     salesContact: document.getElementById('salesContact').value,
                     salesEmail:   document.getElementById('salesEmail').value,
                     salesPosition: document.getElementById('salesPosition').value,
-                    skipDriveSave: true, // tells the server: don't write a PDF into the shared Drive folder for this one
+                    salesSignature: (_currentProfile && _currentProfile.signature) || null,
+                    skipDriveSave: true,
                     items: [],
                     outsourceItems: [],
+                    flatRateItems: [],
                     includeVat: document.getElementById('includeVatCheck')?.checked || false,
-                    vatExclusive: document.getElementById('vatExclusiveCheck')?.checked || false
+                    vatExclusive: document.getElementById('vatExclusiveCheck')?.checked || false,
+                    bankDetails: document.getElementById('bankDetailsSelect')?.value || 'all'
                 };
 
                 document.querySelectorAll('#items .item-wrapper').forEach(wrapper => {
-                    const row    = wrapper.querySelector('.item-row');
-                    const isFlat = wrapper.querySelector('.isFlatFee').checked;
-                    const computedUnitPrice = row.querySelector('input.price').value.replace(/,/g, '') || 0;
+                    const row = wrapper.querySelector('.item-row');
                     data.items.push({
                         material:  row.querySelector('input.material').value,
-                        sizeW:     isFlat ? '' : (row.querySelector('input.sizeW').value || 0),
-                        sizeH:     isFlat ? '' : (row.querySelector('input.sizeH').value || 0),
+                        sizeW:     row.querySelector('input.sizeW').value || '',
+                        sizeH:     row.querySelector('input.sizeH').value || '',
                         sizeUnit:  row.querySelector('input.sizeUnit').value,
-                        unitPrice: computedUnitPrice,
+                        unitPrice: row.querySelector('input.price').value.replace(/,/g, '') || 0,
                         quantity:  row.querySelector('input.qty').value || 0
                     });
                 });
 
                 document.querySelectorAll('#outsourceItems .item-wrapper').forEach(wrapper => {
-                    const row  = wrapper.querySelector('.item-row');
+                    const row = wrapper.querySelector('.item-row');
                     const mults = [];
                     wrapper.querySelectorAll('.outMultVal').forEach(inp => mults.push(parseFloat(inp.value) || 1));
-                    const basePrice = parseFloat(wrapper.querySelector('input.outsourceBase').value) || 0;
-                    const computedUnitPrice = row.querySelector('input.price').value.replace(/,/g, '') || 0;
                     data.outsourceItems.push({
                         material:    row.querySelector('input.material').value,
                         sizeW:       row.querySelector('input.sizeW').value || '',
                         sizeH:       row.querySelector('input.sizeH').value || '',
                         sizeUnit:    row.querySelector('input.sizeUnit').value,
-                        basePrice,
+                        basePrice:   parseFloat(wrapper.querySelector('input.outsourceBase').value) || 0,
                         multipliers: mults,
-                        unitPrice:   computedUnitPrice,
+                        unitPrice:   row.querySelector('input.price').value.replace(/,/g, '') || 0,
                         quantity:    row.querySelector('input.qty').value || 0
                     });
                 });
 
-                const inHouseCount   = data.items.length;
-                const outsourceCount = data.outsourceItems.length;
-                if (inHouseCount === 0 && outsourceCount === 0) {
-                    alert('Add at least one In-House or Outsource item first (or click "Fill Sample Data").');
+                document.querySelectorAll('#flatRateItems .flat-item-row').forEach(row => {
+                    data.flatRateItems.push({
+                        material:  row.querySelector('input.material').value,
+                        unitPrice: String(row.querySelector('input.flatPrice').value || 0).replace(/,/g, ''),
+                        quantity:  row.querySelector('input.qty').value || 0
+                    });
+                });
+
+                if (!data.items.length && !data.outsourceItems.length && !data.flatRateItems.length) {
+                    alert('Add at least one item before previewing.');
                     return;
                 }
 
@@ -1109,20 +1775,20 @@
                     body: JSON.stringify(data)
                 });
 
-                if (!response.ok) {
-                    const errText = await response.text().catch(() => '');
-                    throw new Error(errText || 'Failed to generate preview PDF');
-                }
+                if (!response.ok) throw new Error(await response.text().catch(() => 'Failed to generate preview'));
 
+                const disposition = response.headers.get('Content-Disposition') || '';
+                const match = disposition.match(/filename="([^"]+)"/);
+                const filename = match ? match[1] : `PREVIEW_${data.controlNumber}.pdf`;
                 const blob = await response.blob();
-                const namedFile = new File([blob], 'dev-preview.pdf', { type: 'application/pdf' });
-                const url = window.URL.createObjectURL(namedFile);
+                const url  = window.URL.createObjectURL(new File([blob], filename, { type: 'application/pdf' }));
                 window.open(url, '_blank');
                 setTimeout(() => window.URL.revokeObjectURL(url), 30000);
-
             } catch (err) {
                 alert(err.message);
             } finally {
                 document.getElementById('loading').classList.remove('show');
             }
         }
+
+        async function devGeneratePreview() { await previewCurrentQuote(); }

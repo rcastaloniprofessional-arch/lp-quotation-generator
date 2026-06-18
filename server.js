@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const { execSync } = require('child_process');
+const crypto = require('crypto');
 
 const app = express();
 const PORT = 3000;
@@ -13,13 +14,23 @@ const PORT = 3000;
 // ── Middleware (must be before routes) ───────────────────────────────────────
 app.use(compression());          // gzip everything (static files + JSON responses)
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));  // signature images can be large base64 strings
 app.use(express.static('public'));
 
 // ── Google Drive shared folder path ──────────────────────────────────────────
 const DRIVE_FOLDER = 'G:\\Shared drives\\JOBS (OPERATIONS)\\8_SALES\\1. GENERATED QUOTES';
-const QUOTES_FILE  = path.join(DRIVE_FOLDER, 'lp_quotes.json');
-const SERIALS_FILE = path.join(DRIVE_FOLDER, 'lp_serials.json');
+const QUOTES_FILE   = path.join(DRIVE_FOLDER, 'lp_quotes.json');
+const SERIALS_FILE  = path.join(DRIVE_FOLDER, 'lp_serials.json');
+
+// Profiles stored locally so admin panel works even before Drive is mounted
+const LOCAL_DATA_DIR = path.join(__dirname, 'data');
+const PROFILES_FILE  = path.join(LOCAL_DATA_DIR, 'lp_profiles.json');
+fs.mkdirSync(LOCAL_DATA_DIR, { recursive: true }); // ensure data/ exists
+
+// ── Admin config ────────────────────────────────────────────────────────────
+// Change ADMIN_PASSWORD to something secure. Token is random per server restart.
+const ADMIN_PASSWORD = '11223';
+const ADMIN_TOKEN    = require('crypto').randomBytes(24).toString('hex');
 
 // ── Per-file mutex ────────────────────────────────────────────────────────────
 // Two requests hitting the same JSON file at once (e.g. two reps saving a quote,
@@ -91,15 +102,47 @@ app.post('/api/quotes', async (req, res) => {
     }
 });
 
-// DELETE a quote
+// DELETE a quote (and its PDF file if it exists)
 app.delete('/api/quotes/:storeKey', async (req, res) => {
     try {
         const storeKey = decodeURIComponent(req.params.storeKey);
+        let pdfPath = null;
+        let snap    = null;
         await withFileLock(QUOTES_FILE, async () => {
             const db = await readJSON(QUOTES_FILE);
+            snap    = db[storeKey] || null;
+            pdfPath = snap?.pdfPath || null;
             delete db[storeKey];
             await writeJSON(QUOTES_FILE, db);
         });
+
+        // If pdfPath was stored, use it directly; otherwise reconstruct from snapshot data
+        const tryDelete = (p) => {
+            try {
+                if (p && fs.existsSync(p)) { fs.unlinkSync(p); console.log(`[PDF DELETE] Removed: ${p}`); }
+            } catch (e) { console.warn(`[PDF DELETE] Could not delete: ${e.message}`); }
+        };
+
+        if (pdfPath) {
+            tryDelete(pdfPath);
+        } else if (snap) {
+            // Reconstruct filename the same way the generate route does
+            const ctrl      = snap.controlNumber || 'Q26_0000';
+            const company   = (snap.company     || 'Quotation').replace(/[^a-z0-9_\- ]/gi, '_');
+            const project   = (snap.projectName || '').replace(/[^a-z0-9_\- ]/gi, '_').trim();
+            const revNum    = parseInt(snap.revisions) || 0;
+            const revSuffix = revNum > 0 ? ` - Rev${revNum}` : '';
+            const projPart  = project ? ` - ${project}` : '';
+            const salesPart = (snap.salesName || '').replace(/[^a-z0-9_\- ]/gi, '_').trim();
+            const salesStr  = salesPart ? ` - ${salesPart}` : '';
+            const filename  = `${ctrl} ${company}${projPart}${revSuffix}${salesStr}.pdf`;
+            const companyFolderName = (snap.company || 'Unknown')
+                .replace(/[<>:"/\\|?*]/g, '_').replace(/[. ]+$/, '').trim() || 'Unknown';
+            // Try company subfolder first, then root
+            tryDelete(path.join(DRIVE_FOLDER, companyFolderName, filename));
+            tryDelete(path.join(DRIVE_FOLDER, filename));
+        }
+
         res.json({ ok: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
@@ -142,6 +185,42 @@ app.get('/api/serials/peek', async (req, res) => {
         const companyKey = (req.query.companyKey || '').trim().toLowerCase();
         const serials = await withFileLock(SERIALS_FILE, () => readJSON(SERIALS_FILE));
         res.json({ serial: (serials[companyKey] || 0) + 1 });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// PUT /api/serials/:companyKey  — set serial to a specific value (used after deletions)
+app.put('/api/serials/:companyKey', async (req, res) => {
+    try {
+        const key   = decodeURIComponent(req.params.companyKey).trim().toLowerCase();
+        const { value } = req.body;
+        if (typeof value !== 'number' || value < 0) return res.status(400).json({ error: 'Invalid value' });
+        await withFileLock(SERIALS_FILE, async () => {
+            const serials = await readJSON(SERIALS_FILE);
+            if (value === 0) {
+                delete serials[key];
+            } else {
+                serials[key] = value;
+            }
+            await writeJSON(SERIALS_FILE, serials);
+        });
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DELETE reset serial for a specific company key
+app.delete('/api/serials/:companyKey', async (req, res) => {
+    try {
+        const key = decodeURIComponent(req.params.companyKey).trim().toLowerCase();
+        await withFileLock(SERIALS_FILE, async () => {
+            const serials = await readJSON(SERIALS_FILE);
+            delete serials[key];
+            await writeJSON(SERIALS_FILE, serials);
+        });
+        res.json({ ok: true });
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
@@ -204,11 +283,12 @@ app.post('/api/generate-quotation', async (req, res) => {
     try {
         const data = req.body;
 
-        // Validate: need at least in-house OR outsource items
+        // Validate: need at least in-house OR outsource OR flat rate items
         const hasInHouse   = data.items && data.items.length > 0;
         const hasOutsource = data.outsourceItems && data.outsourceItems.length > 0;
-        if (!hasInHouse && !hasOutsource) {
-            return res.status(400).send('No items provided. Please add at least one In-House or Outsource item.');
+        const hasFlatRate  = data.flatRateItems && data.flatRateItems.length > 0;
+        if (!hasInHouse && !hasOutsource && !hasFlatRate) {
+            return res.status(400).send('No items provided. Please add at least one item.');
         }
 
         // Calculate totals
@@ -234,9 +314,18 @@ app.post('/api/generate-quotation', async (req, res) => {
             return { ...item, totalAmount: total.toFixed(2), formula };
         });
 
+        // Compute flat rate item totals
+        data.flatRateItems = (data.flatRateItems || []).map(item => {
+            const price = parseFloat(item.unitPrice) || 0;
+            const qty   = parseInt(item.quantity) || 0;
+            const total = price * qty;
+            return { ...item, totalAmount: total.toFixed(2) };
+        });
+
         data.grandTotal = (
             data.items.reduce((sum, item) => sum + parseFloat(item.totalAmount), 0) +
-            data.outsourceItems.reduce((sum, item) => sum + parseFloat(item.totalAmount), 0)
+            data.outsourceItems.reduce((sum, item) => sum + parseFloat(item.totalAmount), 0) +
+            data.flatRateItems.reduce((sum, item) => sum + parseFloat(item.totalAmount), 0)
         ).toFixed(2);
 
         // Logo as base64 so Puppeteer can render it without an HTTP round-trip
@@ -316,6 +405,19 @@ app.post('/api/generate-quotation', async (req, res) => {
                 console.log(`[PDF SAVE] Writing PDF to: ${pdfPath}`);
                 fs.writeFileSync(pdfPath, pdfBuffer);
                 console.log(`[PDF SAVE] ✅ Saved successfully`);
+
+                // Store the saved PDF path back into the quote snapshot so delete can find it
+                if (data.storeKey) {
+                    try {
+                        await withFileLock(QUOTES_FILE, async () => {
+                            const db = await readJSON(QUOTES_FILE);
+                            if (db[data.storeKey]) {
+                                db[data.storeKey].pdfPath = pdfPath;
+                                await writeJSON(QUOTES_FILE, db);
+                            }
+                        });
+                    } catch {}
+                }
             } catch (saveErr) {
                 console.error(`[PDF SAVE] ❌ Failed: ${saveErr.message} (code: ${saveErr.code})`);
             }
@@ -427,7 +529,7 @@ function generateQuotationHTML(data, logoBase64) {
     </div>
     <div class="info-column">
       <div class="info-row"><span class="label">Date:</span><span class="value">${data.date || ''}</span></div>
-      <div class="info-row"><span class="label">Contact No.:</span><span class="value">${data.tel || ''}</span></div>
+      <div class="info-row"><span class="label">Contact No.:</span><span class="value">${formatPhone(data.tel || '')}</span></div>
     </div>
   </div>
 
@@ -467,6 +569,18 @@ function generateQuotationHTML(data, logoBase64) {
           <td class="text-center">${(item.sizeW && item.sizeH) ? 'x' : ''}</td>
           <td class="text-center">${item.sizeH ? item.sizeH : '—'}</td>
           <td class="text-center">${item.sizeUnit || ''}</td>
+          <td class="text-right">${item.unitPrice ? formatCurrency(item.unitPrice) : ''}</td>
+          <td class="text-center">${item.quantity || ''}</td>
+          <td class="text-right">${formatCurrency(item.totalAmount)}</td>
+        </tr>
+      `).join('')}
+      ${(data.flatRateItems || []).map(item => `
+        <tr>
+          <td>${item.material || ''}</td>
+          <td class="text-center"></td>
+          <td class="text-center"></td>
+          <td class="text-center"></td>
+          <td class="text-center"></td>
           <td class="text-right">${item.unitPrice ? formatCurrency(item.unitPrice) : ''}</td>
           <td class="text-center">${item.quantity || ''}</td>
           <td class="text-right">${formatCurrency(item.totalAmount)}</td>
@@ -517,19 +631,15 @@ function generateQuotationHTML(data, logoBase64) {
       *Prices are subject to change without prior notice</strong>
     </p>
 
-    <p>
-      <strong>Bank Payment Details:<br>
-      Banco De Oro (BDO)<br>
-      Bank Account Name: LAUNCHPAD HOLDINGS OPC<br>
-      Bank Account Number: 000668097626</strong>
-    </p>
-
-    <p>
-      <strong>Bank Payment Details:<br>
-      UnionBank (UB)<br>
-      Bank Account Name: LAUNCHPAD HOLDINGS OPC<br>
-      Bank Account Number: 000910035428</strong>
-    </p>
+    ${(function(){
+      var banks = data.bankDetails ? data.bankDetails.split(',') : ['bdo','ub','gcash'];
+      var has = function(v){ return banks.includes(v); };
+      var out = '';
+      if(has('bdo'))   out += '<p><strong>Bank Payment Details:<br>Banco De Oro (BDO)<br>Bank Account Name: LAUNCHPAD HOLDINGS OPC<br>Bank Account Number: 000668097626</strong></p>';
+      if(has('ub'))    out += '<p><strong>Bank Payment Details:<br>UnionBank (UB)<br>Bank Account Name: LAUNCHPAD HOLDINGS OPC<br>Bank Account Number: 000910035428</strong></p>';
+      if(has('gcash')) out += '<p><strong>GCash:<br>Account Name: V******* T.<br>Account Number: 0961 929 3603</strong></p>';
+      return out;
+    })()}
 
     <p>
       1. Late Payments shall be charge a penalty of 2% per month compounded or 24% Annually. Partial Payments shall be first applied to accumulated penalties, interest, then principal balance in that order.<br>
@@ -553,7 +663,11 @@ function generateQuotationHTML(data, logoBase64) {
   <div class="signature-container">
     <div class="sig-box">
       <p><strong>Sincerely,</strong></p>
-      <div class="sig-line" style="margin-top:50px;">
+      ${data.salesSignature
+        ? `<div style="margin-top:10px;margin-bottom:4px;"><img src="${data.salesSignature}" alt="Signature" style="max-height:60px;max-width:200px;object-fit:contain;"></div>`
+        : '<div style="height:60px;margin-top:10px;"></div>'
+      }
+      <div class="sig-line" style="margin-top:4px;">
         <strong>${data.salesName || 'Narine Canales'}</strong><br>
         ${data.salesPosition || 'General Manager'}
       </div>
@@ -570,6 +684,173 @@ function generateQuotationHTML(data, logoBase64) {
 </html>
     `;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROFILES API
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/* Format Philippine mobile/landline numbers for PDF display.
+   e.g. "09123456789" → "0912 345 6789", "+639123456789" → "+63 912 345 6789" */
+function formatPhone(raw) {
+    const digits = raw.replace(/\D/g, '');
+    // Philippine mobile: 11 digits starting with 09 → 0XXX XXX XXXX
+    if (/^09\d{9}$/.test(digits)) {
+        return digits.slice(0,4) + ' ' + digits.slice(4,7) + ' ' + digits.slice(7);
+    }
+    // International format: 639XXXXXXXXX → +63 9XX XXX XXXX
+    if (/^639\d{9}$/.test(digits)) {
+        return '+63 ' + digits.slice(2,5) + ' ' + digits.slice(5,8) + ' ' + digits.slice(8);
+    }
+    // Fallback: return as-is
+    return raw;
+}
+
+/* Simple PIN hash (SHA-256). Not bcrypt, but good enough for an internal tool. */
+function hashPin(pin) {
+    return crypto.createHash('sha256').update(String(pin)).digest('hex');
+}
+
+/* Admin token middleware */
+function requireAdmin(req, res, next) {
+    if (req.headers['x-admin-token'] === ADMIN_TOKEN) return next();
+    res.status(401).json({ error: 'Unauthorized' });
+}
+
+// POST /api/admin/login  — returns a session token
+app.post('/api/admin/login', (req, res) => {
+    const { password } = req.body;
+    if (password === ADMIN_PASSWORD) {
+        res.json({ token: ADMIN_TOKEN });
+    } else {
+        res.status(401).json({ error: 'Incorrect password' });
+    }
+});
+
+// GET /api/profiles — returns profile list (strips PIN hash; includes signature for admin, strips for reps)
+app.get('/api/profiles', async (req, res) => {
+    try {
+        const db = await withFileLock(PROFILES_FILE, () => readJSON(PROFILES_FILE));
+        const isAdmin = req.headers['x-admin-token'] === ADMIN_TOKEN;
+        const list = Object.values(db).map(p => ({
+            id:        p.id,
+            name:      p.name,
+            position:  p.position,
+            contact:   p.contact,
+            email:     p.email,
+            signature: p.signature || null   // include for both; login page doesn't use it, app.js will fetch full profile
+        }));
+        res.json(list);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/profiles — add a new profile (admin only)
+app.post('/api/profiles', requireAdmin, async (req, res) => {
+    try {
+        const { name, position, contact, email, pin, signature } = req.body;
+        if (!name || !position || !contact || !email || !pin) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+        if (String(pin).length !== 4 || !/^\d{4}$/.test(String(pin))) {
+            return res.status(400).json({ error: 'PIN must be exactly 4 digits' });
+        }
+
+        const id = crypto.randomBytes(8).toString('hex');
+        const profile = { id, name, position, contact, email, pinHash: hashPin(pin), signature: signature || null, createdAt: new Date().toISOString() };
+
+        await withFileLock(PROFILES_FILE, async () => {
+            const db = await readJSON(PROFILES_FILE);
+            db[id] = profile;
+            await writeJSON(PROFILES_FILE, db);
+        });
+        res.json({ ok: true, id });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DELETE /api/profiles/:id  (admin only)
+app.delete('/api/profiles/:id', requireAdmin, async (req, res) => {
+    try {
+        const id = decodeURIComponent(req.params.id);
+        await withFileLock(PROFILES_FILE, async () => {
+            const db = await readJSON(PROFILES_FILE);
+            delete db[id];
+            await writeJSON(PROFILES_FILE, db);
+        });
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// PUT /api/profiles/:id  — edit profile info (admin only)
+app.put('/api/profiles/:id', requireAdmin, async (req, res) => {
+    try {
+        const id = decodeURIComponent(req.params.id);
+        const { name, position, contact, email, signature } = req.body;
+        if (!name || !position || !contact || !email) {
+            return res.status(400).json({ error: 'Missing required fields' });
+        }
+        await withFileLock(PROFILES_FILE, async () => {
+            const db = await readJSON(PROFILES_FILE);
+            if (!db[id]) return res.status(404).json({ error: 'Profile not found' });
+            db[id].name      = name;
+            db[id].position  = position;
+            db[id].contact   = contact;
+            db[id].email     = email;
+            if (signature !== undefined) db[id].signature = signature;
+            await writeJSON(PROFILES_FILE, db);
+        });
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// PUT /api/profiles/:id/pin  — change PIN (admin only)
+app.put('/api/profiles/:id/pin', requireAdmin, async (req, res) => {
+    try {
+        const id  = decodeURIComponent(req.params.id);
+        const { pin } = req.body;
+        if (!pin || !/^\d{4}$/.test(String(pin))) return res.status(400).json({ error: 'Invalid PIN' });
+
+        await withFileLock(PROFILES_FILE, async () => {
+            const db = await readJSON(PROFILES_FILE);
+            if (!db[id]) return res.status(404).json({ error: 'Profile not found' });
+            db[id].pinHash  = hashPin(pin);
+            await writeJSON(PROFILES_FILE, db);
+        });
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST /api/profiles/login  — verify name + PIN, return profile (no PIN hash)
+app.post('/api/profiles/login', async (req, res) => {
+    try {
+        const { id, pin } = req.body;
+        if (!id || !pin) return res.status(400).json({ error: 'Missing id or pin' });
+
+        const db = await withFileLock(PROFILES_FILE, () => readJSON(PROFILES_FILE));
+        const profile = db[id];
+        if (!profile) return res.status(404).json({ error: 'Profile not found' });
+
+        if (profile.pinHash !== hashPin(pin)) {
+            return res.status(401).json({ error: 'Incorrect PIN' });
+        }
+
+        // Return safe profile (no pinHash)
+        const { pinHash, ...safe } = profile;
+        res.json(safe);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// ── End of Profiles API ───────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);

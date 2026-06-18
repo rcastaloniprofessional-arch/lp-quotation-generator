@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LP Systems – Admin</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #2C3E50;
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            align-items: flex-start;
+            justify-content: center;
+            padding: 24px 16px 40px;
+        }
+
+        /* ── Admin Login ── */
+        #adminLoginScreen {
+            background: white;
+            border-radius: 16px;
+            padding: 36px 28px;
+            width: 100%;
+            max-width: 380px;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        #adminLoginScreen h2 { font-size: 18px; color: #2C3E50; margin-bottom: 6px; }
+        .badge-admin {
+            display: inline-block;
+            background: #2C3E50;
+            color: #f1c40f;
+            font-size: 10px;
+            font-weight: bold;
+            padding: 2px 8px;
+            border-radius: 3px;
+            letter-spacing: 1px;
+            margin-bottom: 24px;
+        }
+
+        .field-group { text-align: left; margin-bottom: 16px; }
+        .field-group label { display: block; font-size: 12px; font-weight: bold; color: #34495e; margin-bottom: 6px; }
+        .field-group input, .field-group select {
+            width: 100%;
+            padding: 13px 12px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-size: 16px; /* prevent iOS zoom */
+            color: #2c3e50;
+            min-height: 48px;
+        }
+        .field-group input:focus { outline: none; border-color: #4A90E2; }
+
+        .btn-primary {
+            width: 100%;
+            padding: 14px;
+            background: #2C3E50;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.2s;
+            min-height: 52px;
+            touch-action: manipulation;
+        }
+        .btn-primary:hover { background: #1a252f; }
+        .err-msg { font-size: 12px; color: #e74c3c; margin-top: 10px; min-height: 18px; font-weight: bold; }
+
+        /* ── Admin Dashboard ── */
+        #adminDashboard { display: none; width: 100%; max-width: 960px; }
+
+        .dash-header {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+        .dash-title { color: white; font-size: 18px; font-weight: bold; }
+        .dash-title span { font-size: 12px; font-weight: normal; opacity: 0.6; display: block; margin-top: 2px; }
+        .dash-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+        .btn-logout {
+            background: rgba(255,255,255,0.12);
+            color: white;
+            border: 1px solid rgba(255,255,255,0.25);
+            border-radius: 6px;
+            padding: 9px 16px;
+            font-size: 13px;
+            cursor: pointer;
+            min-height: 42px;
+            touch-action: manipulation;
+        }
+        .btn-logout:hover { background: rgba(255,255,255,0.2); }
+
+        .btn-dev-toggle {
+            background: transparent;
+            border: 1px solid #f1c40f;
+            color: #f1c40f;
+            border-radius: 6px;
+            padding: 9px 16px;
+            font-size: 13px;
+            font-weight: bold;
+            cursor: pointer;
+            min-height: 42px;
+            touch-action: manipulation;
+        }
+        .btn-dev-toggle:hover { background: rgba(241,196,15,0.15); }
+
+        /* Grid: stacks on mobile, side-by-side on tablet+ */
+        .dash-grid {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+            align-items: start;
+        }
+        @media (min-width: 680px) {
+            .dash-grid { grid-template-columns: 340px 1fr; gap: 20px; }
+        }
+
+        .panel {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        }
+        @media (min-width: 480px) { .panel { padding: 24px; } }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 18px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #4A90E2;
+        }
+
+        /* Add profile form */
+        .form-row { margin-bottom: 13px; }
+        .form-row label { display: block; font-size: 12px; font-weight: bold; color: #34495e; margin-bottom: 5px; }
+        .form-row input, .form-row select {
+            width: 100%;
+            padding: 11px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 16px; /* prevents iOS zoom */
+            min-height: 46px;
+        }
+        .form-row input:focus { outline: none; border-color: #4A90E2; }
+
+        .pin-row-add { display: flex; gap: 10px; }
+        .pin-row-add input {
+            width: 56px !important;
+            height: 56px !important;
+            text-align: center;
+            font-size: 20px;
+            font-weight: bold;
+            padding: 4px !important;
+            border-radius: 8px !important;
+            min-height: 56px !important;
+        }
+
+        /* Signature upload */
+        .sig-upload-area {
+            border: 2px dashed #ddd;
+            border-radius: 8px;
+            padding: 18px 14px;
+            text-align: center;
+            cursor: pointer;
+            position: relative;
+            min-height: 64px;
+        }
+        .sig-upload-area:hover { border-color: #4A90E2; background: #f0f4ff; }
+        .sig-upload-area input[type="file"] {
+            position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+        }
+        .sig-preview { max-width: 100%; max-height: 70px; display: none; margin: 6px auto 0; border: 1px solid #eee; border-radius: 4px; }
+        .sig-placeholder { font-size: 13px; color: #aaa; }
+
+        .btn-add-rep {
+            width: 100%;
+            padding: 13px;
+            background: #4A90E2;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 4px;
+            min-height: 50px;
+            touch-action: manipulation;
+        }
+        .btn-add-rep:hover { background: #2980b9; }
+        .add-msg { font-size: 12px; margin-top: 8px; min-height: 18px; font-weight: bold; text-align: center; }
+        .add-msg.ok  { color: #27ae60; }
+        .add-msg.err { color: #e74c3c; }
+
+        /* Rep list */
+        .rep-list { display: flex; flex-direction: column; gap: 10px; }
+        .rep-empty { font-size: 13px; color: #aaa; text-align: center; padding: 24px; }
+
+        .rep-card {
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 14px;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .rep-card:hover { border-color: #4A90E2; background: #f8faff; }
+
+        .rep-sig-thumb {
+            width: 60px; height: 40px;
+            object-fit: contain;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            background: #fafafa;
+            flex-shrink: 0;
+        }
+        .rep-sig-none {
+            width: 60px; height: 40px;
+            background: #f5f5f5;
+            border: 1px dashed #ddd;
+            border-radius: 4px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 10px; color: #bbb; flex-shrink: 0;
+        }
+
+        .rep-info { flex: 1; min-width: 0; }
+        .rep-name { font-size: 14px; font-weight: bold; color: #2c3e50; }
+        .rep-meta { font-size: 12px; color: #888; margin-top: 2px; }
+
+        .rep-actions { display: flex; gap: 8px; flex-wrap: wrap; width: 100%; margin-top: 4px; }
+        @media (min-width: 480px) { .rep-actions { width: auto; margin-top: 0; } }
+
+        .btn-change-pin {
+            background: #eef3fc; color: #4A90E2; border: 1px solid #c5d5f0;
+            border-radius: 5px; padding: 7px 12px; font-size: 12px; font-weight: bold; cursor: pointer;
+            min-height: 38px; touch-action: manipulation;
+        }
+        .btn-change-pin:hover { background: #dbe7fa; }
+
+        .btn-del-rep {
+            background: none; border: 1px solid #f0c0bc;
+            border-radius: 5px; padding: 7px 12px; font-size: 12px; font-weight: bold;
+            color: #e74c3c; cursor: pointer; min-height: 38px; touch-action: manipulation;
+        }
+        .btn-del-rep:hover { background: #fff5f5; }
+
+        .btn-edit-rep {
+            background: #f0faf4; color: #27ae60; border: 1px solid #b2dfcc;
+            border-radius: 5px; padding: 7px 12px; font-size: 12px; font-weight: bold; cursor: pointer;
+            min-height: 38px; touch-action: manipulation;
+        }
+        .btn-edit-rep:hover { background: #d5f0e0; }
+
+        /* Modals */
+        .modal-bg {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.5); z-index: 100;
+            align-items: flex-end; justify-content: center;
+        }
+        @media (min-width: 500px) {
+            .modal-bg { align-items: center; }
+        }
+        .modal-bg.open { display: flex; }
+
+        .modal-box {
+            background: white;
+            border-radius: 16px 16px 0 0;
+            padding: 28px 24px 32px;
+            width: 100%;
+            max-width: 100%;
+            box-shadow: 0 -4px 40px rgba(0,0,0,0.25);
+            text-align: center;
+        }
+        @media (min-width: 500px) {
+            .modal-box {
+                border-radius: 12px;
+                width: 340px;
+                max-width: 95vw;
+            }
+        }
+
+        .modal-box h3 { font-size: 16px; color: #2c3e50; margin-bottom: 4px; }
+        .modal-box p  { font-size: 12px; color: #888; margin-bottom: 18px; }
+        .modal-pin-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 10px; }
+        .modal-pin-row input {
+            width: 56px; height: 60px;
+            border: 2px solid #ddd; border-radius: 10px;
+            font-size: 22px; text-align: center; font-weight: bold; color: #2c3e50;
+        }
+        .modal-pin-row input:focus { outline: none; border-color: #4A90E2; }
+        .modal-actions { display: flex; gap: 10px; margin-top: 18px; }
+        .btn-modal-cancel {
+            flex: 1; padding: 13px; border: 1px solid #ddd; border-radius: 8px;
+            background: white; color: #666; font-size: 14px; font-weight: bold; cursor: pointer;
+            min-height: 50px;
+        }
+        .btn-modal-save {
+            flex: 1; padding: 13px; border: none; border-radius: 8px;
+            background: #4A90E2; color: white; font-size: 14px; font-weight: bold; cursor: pointer;
+            min-height: 50px;
+        }
+        .btn-modal-save:hover { background: #2980b9; }
+
+        /* Edit Profile modal — wide on larger screens */
+        .modal-box.wide {
+            text-align: left;
+        }
+        @media (min-width: 500px) {
+            .modal-box.wide { width: 460px; max-width: 95vw; }
+        }
+        .modal-box.wide h3 { text-align: center; margin-bottom: 16px; }
+        .edit-form-row { margin-bottom: 12px; }
+        .edit-form-row label { display: block; font-size: 12px; font-weight: bold; color: #34495e; margin-bottom: 4px; }
+        .edit-form-row input {
+            width: 100%; padding: 11px 12px; border: 1px solid #ddd;
+            border-radius: 6px; font-size: 16px; min-height: 46px;
+        }
+        .edit-form-row input:focus { outline: none; border-color: #4A90E2; }
+        .modal-msg { font-size: 12px; min-height: 16px; font-weight: bold; color: #27ae60; }
+    </style>
+</head>
+<body>
+
+    <!-- ── Admin Login ── -->
+    <div id="adminLoginScreen">
+        <h2 style="margin-bottom:6px;">Admin Panel</h2>
+        <div class="badge-admin">ADMIN ACCESS</div>
+
+        <div class="field-group">
+            <label>Admin Password</label>
+            <input type="password" id="adminPassInput" placeholder="Enter admin password" onkeydown="if(event.key==='Enter') doAdminLogin()">
+        </div>
+        <button class="btn-primary" onclick="doAdminLogin()">Sign In as Admin</button>
+        <div class="err-msg" id="adminErr"></div>
+        <div style="margin-top:20px;font-size:13px;color:#aaa;">
+            <a href="login.html" style="color:#4A90E2;text-decoration:none;">← Back to staff login</a>
+        </div>
+    </div>
+
+    <!-- ── Admin Dashboard ── -->
+    <div id="adminDashboard">
+        <div class="dash-header">
+            <div class="dash-title">
+                Profile Manager
+                <span>Add, edit, and remove sales rep accounts</span>
+            </div>
+            <div class="dash-actions">
+                <button class="btn-dev-toggle" id="devToggleBtn" onclick="toggleDevMode()">Open Dev Login</button>
+                <button class="btn-logout" onclick="adminLogout()">Sign Out</button>
+            </div>
+        </div>
+
+        <div class="dash-grid">
+            <!-- Add New Profile -->
+            <div class="panel">
+                <div class="panel-title">Add New Profile</div>
+
+                <div class="form-row">
+                    <label>Full Name *</label>
+                    <input type="text" id="newName" placeholder="e.g. Juan Dela Cruz">
+                </div>
+                <div class="form-row">
+                    <label>Position *</label>
+                    <input type="text" id="newPosition" placeholder="e.g. Account Manager">
+                </div>
+                <div class="form-row">
+                    <label>Contact Number *</label>
+                    <input type="tel" id="newContact" placeholder="e.g. +63912-345-6789">
+                </div>
+                <div class="form-row">
+                    <label>Email *</label>
+                    <input type="email" id="newEmail" placeholder="e.g. juan@launchpadph.com">
+                </div>
+                <div class="form-row">
+                    <label>4-Digit PIN *</label>
+                    <div class="pin-row-add" id="addPinRow">
+                        <input type="password" maxlength="1" inputmode="numeric" autocomplete="off">
+                        <input type="password" maxlength="1" inputmode="numeric" autocomplete="off">
+                        <input type="password" maxlength="1" inputmode="numeric" autocomplete="off">
+                        <input type="password" maxlength="1" inputmode="numeric" autocomplete="off">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <label>E-Signature Image <span style="font-weight:normal;color:#aaa;">(optional, PNG/JPG)</span></label>
+                    <div class="sig-upload-area" id="sigUploadArea">
+                        <input type="file" accept="image/png,image/jpeg,image/gif" id="sigFileInput" onchange="handleSigUpload(this)">
+                        <div class="sig-placeholder" id="sigPlaceholder">Tap to upload signature image</div>
+                        <img class="sig-preview" id="sigPreview" alt="Signature preview">
+                    </div>
+                </div>
+
+                <button class="btn-add-rep" onclick="addProfile()">Add Profile</button>
+                <div class="add-msg" id="addMsg"></div>
+            </div>
+
+            <!-- Rep List -->
+            <div class="panel">
+                <div class="panel-title">Sales Rep Profiles</div>
+                <div class="rep-list" id="repList">
+                    <div class="rep-empty">Loading profiles...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Profile Modal -->
+    <div class="modal-bg" id="editProfileModal">
+        <div class="modal-box wide">
+            <h3>Edit Profile</h3>
+            <div class="edit-form-row">
+                <label>Full Name *</label>
+                <input type="text" id="editName" placeholder="e.g. Juan Dela Cruz">
+            </div>
+            <div class="edit-form-row">
+                <label>Position *</label>
+                <input type="text" id="editPosition" placeholder="e.g. Account Manager">
+            </div>
+            <div class="edit-form-row">
+                <label>Contact Number *</label>
+                <input type="tel" id="editContact" placeholder="e.g. +63912-345-6789">
+            </div>
+            <div class="edit-form-row">
+                <label>Email *</label>
+                <input type="email" id="editEmail" placeholder="e.g. juan@launchpadph.com">
+            </div>
+            <div class="edit-form-row">
+                <label>E-Signature Image <span style="font-weight:normal;color:#aaa;">(optional — leave blank to keep existing)</span></label>
+                <div class="sig-upload-area" id="editSigUploadArea">
+                    <input type="file" accept="image/png,image/jpeg,image/gif" id="editSigFileInput" onchange="handleEditSigUpload(this)">
+                    <div class="sig-placeholder" id="editSigPlaceholder">Tap to replace signature</div>
+                    <img class="sig-preview" id="editSigPreview" alt="Signature preview">
+                </div>
+            </div>
+            <div class="modal-msg" id="editProfileMsg"></div>
+            <div class="modal-actions">
+                <button class="btn-modal-cancel" onclick="closeEditModal()">Cancel</button>
+                <button class="btn-modal-save" onclick="saveEditProfile()">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Change PIN Modal -->
+    <div class="modal-bg" id="changePinModal">
+        <div class="modal-box">
+            <h3>Change PIN</h3>
+            <p id="changePinName" style="color:#2c3e50;font-weight:bold;margin-bottom:4px;font-size:14px;"></p>
+            <p>Enter a new 4-digit PIN</p>
+            <div class="modal-pin-row" id="modalPinRow">
+                <input type="password" maxlength="1" inputmode="numeric" autocomplete="off">
+                <input type="password" maxlength="1" inputmode="numeric" autocomplete="off">
+                <input type="password" maxlength="1" inputmode="numeric" autocomplete="off">
+                <input type="password" maxlength="1" inputmode="numeric" autocomplete="off">
+            </div>
+            <div class="modal-msg" id="changePinMsg"></div>
+            <div class="modal-actions">
+                <button class="btn-modal-cancel" onclick="closeChangePinModal()">Cancel</button>
+                <button class="btn-modal-save" onclick="saveNewPin()">Save PIN</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API = window.location.origin;
+        sessionStorage.removeItem('lp_admin_token');
+        let adminToken = '';
+        let changePinTargetId = null;
+        let sigBase64 = null;
+
+        async function doAdminLogin() {
+            const pass = document.getElementById('adminPassInput').value;
+            if (!pass) return;
+            try {
+                const r = await fetch(`${API}/api/admin/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password: pass })
+                });
+                if (r.ok) {
+                    const j = await r.json();
+                    adminToken = j.token;
+                    sessionStorage.setItem('lp_admin_token', adminToken);
+                    showDashboard();
+                } else {
+                    document.getElementById('adminErr').textContent = 'Incorrect password.';
+                    setTimeout(() => document.getElementById('adminErr').textContent = '', 2000);
+                }
+            } catch {
+                document.getElementById('adminErr').textContent = 'Server error.';
+            }
+        }
+
+        function toggleDevMode() { window.open('login.html?dev=1', '_blank'); }
+        function updateDevToggleBtn() {
+            const btn = document.getElementById('devToggleBtn');
+            if (btn) btn.textContent = 'Open Dev Login';
+        }
+
+        function adminLogout() {
+            sessionStorage.removeItem('lp_admin_token');
+            adminToken = '';
+            document.getElementById('adminDashboard').style.display = 'none';
+            document.getElementById('adminLoginScreen').style.display = 'block';
+        }
+
+        function showDashboard() {
+            document.getElementById('adminLoginScreen').style.display = 'none';
+            document.getElementById('adminDashboard').style.display = 'block';
+            loadRepList();
+            updateDevToggleBtn();
+        }
+
+        function wirePinDigits(container) {
+            const ds = Array.from(container.querySelectorAll('input'));
+            ds.forEach((d, i) => {
+                d.addEventListener('input', e => {
+                    const v = e.target.value.replace(/\D/g, '');
+                    e.target.value = v ? v[0] : '';
+                    if (v && i < ds.length - 1) ds[i + 1].focus();
+                });
+                d.addEventListener('keydown', e => {
+                    if (e.key === 'Backspace' && !d.value && i > 0) {
+                        ds[i - 1].value = '';
+                        ds[i - 1].focus();
+                    }
+                });
+            });
+            return () => ds.map(d => d.value).join('');
+        }
+
+        const getAddPin   = wirePinDigits(document.getElementById('addPinRow'));
+        const getModalPin = wirePinDigits(document.getElementById('modalPinRow'));
+
+        function handleSigUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                sigBase64 = e.target.result;
+                document.getElementById('sigPreview').src = sigBase64;
+                document.getElementById('sigPreview').style.display = 'block';
+                document.getElementById('sigPlaceholder').style.display = 'none';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function addProfile() {
+            const name     = document.getElementById('newName').value.trim();
+            const position = document.getElementById('newPosition').value.trim();
+            const contact  = document.getElementById('newContact').value.trim();
+            const email    = document.getElementById('newEmail').value.trim();
+            const pin      = getAddPin();
+            const msg      = document.getElementById('addMsg');
+
+            if (!name || !position || !contact || !email || pin.length !== 4) {
+                msg.textContent = 'Please fill all required fields and set a 4-digit PIN.';
+                msg.className = 'add-msg err';
+                return;
+            }
+            try {
+                const r = await fetch(`${API}/api/profiles`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+                    body: JSON.stringify({ name, position, contact, email, pin, signature: sigBase64 || null })
+                });
+                if (r.ok) {
+                    msg.textContent = `${name} added successfully!`;
+                    msg.className = 'add-msg ok';
+                    ['newName','newContact','newPosition','newEmail'].forEach(id => document.getElementById(id).value = '');
+                    document.querySelectorAll('#addPinRow input').forEach(d => d.value = '');
+                    document.getElementById('sigPreview').style.display = 'none';
+                    document.getElementById('sigPlaceholder').style.display = 'block';
+                    document.getElementById('sigFileInput').value = '';
+                    sigBase64 = null;
+                    loadRepList();
+                } else {
+                    const j = await r.json();
+                    msg.textContent = j.error || 'Error adding profile.';
+                    msg.className = 'add-msg err';
+                }
+            } catch {
+                msg.textContent = 'Server error.';
+                msg.className = 'add-msg err';
+            }
+            setTimeout(() => { msg.textContent = ''; }, 3000);
+        }
+
+        async function loadRepList() {
+            const list = document.getElementById('repList');
+            list.innerHTML = '<div class="rep-empty">Loading...</div>';
+            try {
+                const r = await fetch(`${API}/api/profiles`, { headers: { 'x-admin-token': adminToken } });
+                const profiles = await r.json();
+                if (!profiles.length) {
+                    list.innerHTML = '<div class="rep-empty">No profiles yet. Add one above.</div>';
+                    return;
+                }
+                list.innerHTML = profiles.map(p => `
+                    <div class="rep-card">
+                        ${p.signature
+                            ? `<img class="rep-sig-thumb" src="${p.signature}" alt="sig">`
+                            : `<div class="rep-sig-none">No sig</div>`}
+                        <div class="rep-info">
+                            <div class="rep-name">${p.name}</div>
+                            <div class="rep-meta">${p.position} · ${p.contact}</div>
+                            <div class="rep-meta">${p.email}</div>
+                        </div>
+                        <div class="rep-actions">
+                            <button class="btn-edit-rep" onclick="openEditModal('${p.id}','${escHtml(p.name)}','${escHtml(p.position)}','${escHtml(p.contact)}','${escHtml(p.email)}')">Edit</button>
+                            <button class="btn-change-pin" onclick="openChangePinModal('${p.id}','${escHtml(p.name)}')">Change PIN</button>
+                            <button class="btn-del-rep" onclick="deleteProfile('${p.id}','${escHtml(p.name)}')">Delete</button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch {
+                list.innerHTML = '<div class="rep-empty">Error loading profiles.</div>';
+            }
+        }
+
+        function escHtml(s) { return (s||'').replace(/'/g,"&#39;"); }
+
+        async function deleteProfile(id, name) {
+            if (!confirm(`Delete profile for "${name}"? This cannot be undone.`)) return;
+            await fetch(`${API}/api/profiles/${encodeURIComponent(id)}`, {
+                method: 'DELETE', headers: { 'x-admin-token': adminToken }
+            });
+            loadRepList();
+        }
+
+        let editTargetId = null;
+        let editSigBase64 = null;
+
+        function openEditModal(id, name, position, contact, email) {
+            editTargetId = id;
+            editSigBase64 = null;
+            document.getElementById('editName').value     = name;
+            document.getElementById('editPosition').value = position;
+            document.getElementById('editContact').value  = contact;
+            document.getElementById('editEmail').value    = email;
+            document.getElementById('editSigPreview').style.display     = 'none';
+            document.getElementById('editSigPlaceholder').style.display = 'block';
+            document.getElementById('editSigFileInput').value = '';
+            document.getElementById('editProfileMsg').textContent = '';
+            document.getElementById('editProfileModal').classList.add('open');
+            document.getElementById('editName').focus();
+        }
+
+        function closeEditModal() {
+            document.getElementById('editProfileModal').classList.remove('open');
+            editTargetId = null; editSigBase64 = null;
+        }
+
+        function handleEditSigUpload(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = e => {
+                editSigBase64 = e.target.result;
+                document.getElementById('editSigPreview').src = editSigBase64;
+                document.getElementById('editSigPreview').style.display = 'block';
+                document.getElementById('editSigPlaceholder').style.display = 'none';
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function saveEditProfile() {
+            const name     = document.getElementById('editName').value.trim();
+            const position = document.getElementById('editPosition').value.trim();
+            const contact  = document.getElementById('editContact').value.trim();
+            const email    = document.getElementById('editEmail').value.trim();
+            const msg      = document.getElementById('editProfileMsg');
+
+            if (!name || !position || !contact || !email) {
+                msg.style.color = '#e74c3c';
+                msg.textContent = 'Please fill all required fields.';
+                return;
+            }
+            const body = { name, position, contact, email };
+            if (editSigBase64) body.signature = editSigBase64;
+            try {
+                const r = await fetch(`${API}/api/profiles/${encodeURIComponent(editTargetId)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+                    body: JSON.stringify(body)
+                });
+                if (r.ok) {
+                    msg.style.color = '#27ae60';
+                    msg.textContent = 'Profile updated!';
+                    loadRepList();
+                    setTimeout(closeEditModal, 1000);
+                } else {
+                    const j = await r.json().catch(() => ({}));
+                    msg.style.color = '#e74c3c';
+                    msg.textContent = j.error || 'Error updating profile.';
+                }
+            } catch {
+                msg.style.color = '#e74c3c';
+                msg.textContent = 'Server error.';
+            }
+        }
+
+        function openChangePinModal(id, name) {
+            changePinTargetId = id;
+            document.getElementById('changePinName').textContent = name;
+            document.querySelectorAll('#modalPinRow input').forEach(d => d.value = '');
+            document.getElementById('changePinMsg').textContent = '';
+            document.getElementById('changePinModal').classList.add('open');
+            document.querySelector('#modalPinRow input').focus();
+        }
+        function closeChangePinModal() {
+            document.getElementById('changePinModal').classList.remove('open');
+            changePinTargetId = null;
+        }
+
+        async function saveNewPin() {
+            const pin = getModalPin();
+            if (pin.length !== 4) return;
+            const r = await fetch(`${API}/api/profiles/${encodeURIComponent(changePinTargetId)}/pin`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'x-admin-token': adminToken },
+                body: JSON.stringify({ pin })
+            });
+            if (r.ok) {
+                document.getElementById('changePinMsg').textContent = 'PIN updated!';
+                setTimeout(closeChangePinModal, 1000);
+            }
+        }
+
+        document.getElementById('adminPassInput').addEventListener('keydown', e => {
+            if (e.key === 'Enter') doAdminLogin();
+        });
+    </script>
+</body>
+</html>

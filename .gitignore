@@ -1,7 +1,7 @@
-node_modules
-.pdf
-.env
-.vs/
 node_modules/
 *.pdf
 .env
+.vs/
+
+# Runtime data — contains profile PINs, emails, and signatures (PII). Never commit.
+data/
