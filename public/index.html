@@ -136,7 +136,7 @@
             <div class="session-avatar" id="sessionAvatar">?</div>
             <div class="session-info" id="sessionInfoWrap" style="position:relative;">
                 <!-- In dev mode the name itself is the profile-switcher trigger -->
-                <div class="session-name" id="sessionName" onclick="toggleDevDropdown()">Loading...</div>
+                <div class="session-name" id="sessionName" onclick="toggleDevDropdown(event)">Loading...</div>
                 <div class="session-role" id="sessionRole"></div>
                 <!-- Dev-only profile switcher dropdown, anchored to the name -->
                 <div id="devProfileDropdown" style="
@@ -517,8 +517,9 @@
             }
         }
 
-        function toggleDevDropdown() {
+        function toggleDevDropdown(e) {
             if (!_IS_DEV) return;
+            if (e) e.stopPropagation();
             const dd = document.getElementById('devProfileDropdown');
             dd.style.display = dd.style.display === 'none' ? 'block' : 'none';
         }
