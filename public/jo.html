@@ -561,7 +561,6 @@
       Unit 3006 One Corporate Centre Building, Julia Vargas Avenue,<br>
       Ortigas Center San Antonio Pasig City
     </div>
-    <h2 style="font-size:20px;font-weight:bold;text-transform:uppercase;margin-top:14px;color:#2C3E50;letter-spacing:1px;">Job Order Form</h2>
   </div>
 
   <!-- Session bar -->
@@ -571,7 +570,7 @@
       <img src="LPwhite.png" alt="LP" style="height:26px;width:auto;object-fit:contain;" onerror="this.style.display='none'">
     </div>
     <div class="session-avatar" id="sessionAvatar">?</div>
-    <div class="session-info" id="sessionInfoBlock" style="flex:1;min-width:0;cursor:default;" onclick="toggleDevDropdown()">
+    <div class="session-info" id="sessionInfoBlock" style="flex:1;min-width:0;cursor:default;" onclick="toggleDevDropdown(event)">
       <div class="session-name" id="sessionName">—</div>
       <div class="session-role" id="sessionRole"></div>
     </div>
@@ -1244,8 +1243,9 @@
   }
 
   /* ── Dev mode profile switcher ── */
-  function toggleDevDropdown() {
+  function toggleDevDropdown(e) {
     if (!isDevMode()) return;
+    if (e) e.stopPropagation(); // prevent outside-click handler from closing it on the same event
     const dd = document.getElementById('devProfileDropdown');
     dd.classList.toggle('open');
     if (dd.classList.contains('open') && !window._joDevProfiles) loadJoDevProfiles();
