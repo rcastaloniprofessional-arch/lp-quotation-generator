@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>LP Systems – Sign In</title>
+    <link rel="icon" type="image/png" href="LPwhite.png">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -11,12 +12,12 @@
             font-family: Arial, sans-serif;
             background: #5599E5;
             min-height: 100vh;
-            min-height: 100dvh; /* dynamic viewport for mobile browsers */
+            min-height: 100dvh;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: flex-start;
-            padding: 24px 16px;
+            padding: 24px 16px 0;
         }
 
         .card {
@@ -200,12 +201,11 @@
         /* ── Footer ── */
         footer {
             width: 100%;
-            margin-top: 28px;
-            padding: 12px 20px;
+            max-width: 420px;
+            margin-top: 20px;
+            padding: 12px 20px calc(24px + env(safe-area-inset-bottom));
             text-align: center;
             font-family: Arial, sans-serif;
-            /* safe area for iPhone home bar */
-            padding-bottom: calc(12px + env(safe-area-inset-bottom));
         }
 
         .footer-icons {
@@ -341,7 +341,7 @@
                 if (saved) {
                     try {
                         const sess = JSON.parse(saved);
-                        if (sess && sess.id) { window.location.href = 'index.html' + window.location.search; return; }
+                        if (sess && sess.id) { window.location.href = 'menu.html' + window.location.search; return; }
                     } catch {}
                 }
             } catch {
@@ -426,7 +426,7 @@
                 if (r.ok) {
                     const profile = await r.json();
                     sessionStorage.setItem('lp_session', JSON.stringify(profile));
-                    window.location.href = 'index.html';
+                    window.location.href = 'menu.html';
                 } else {
                     setPinError('Incorrect PIN. Please try again.');
                     btn.classList.remove('loading');

@@ -4,47 +4,70 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>LP SYSTEMS</title>
+    <link rel="icon" type="image/png" href="LPwhite.png">
     <link rel="stylesheet" href="styles.css">
     <style>
         /* ── Session bar ── */
         .session-bar {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             background: #2C3E50;
             color: white;
             border-radius: 8px;
-            padding: 10px 14px;
+            padding: 8px 12px;
             margin-bottom: 16px;
             font-size: 13px;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
+            transition: box-shadow 0.2s ease;
+            min-width: 0;
         }
+        .session-bar.is-sticky {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            z-index: 500;
+            border-radius: 0;
+            margin-bottom: 0;
+            padding: 8px 16px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+        }
+        .session-bar.is-sticky .session-role { display: none; }
+        .session-logo { display: none; }
+        .session-bar.is-sticky .session-logo { display: flex; align-items: center; }
+        #sessionBarSpacer { display: none; height: 0; }
         .session-avatar {
-            width: 36px; height: 36px;
+            width: 32px; height: 32px;
             background: #4A90E2;
             border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            font-weight: bold; font-size: 15px;
+            font-weight: bold; font-size: 13px;
             flex-shrink: 0; color: white;
         }
-        .session-info { flex: 1; min-width: 0; }
-        .session-name { font-weight: bold; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .session-role { font-size: 11px; opacity: 0.65; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .session-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+        .session-info { flex: 1; min-width: 0; overflow: hidden; }
+        .session-name { font-weight: bold; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .session-role { font-size: 10px; opacity: 0.65; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .session-actions { display: flex; gap: 5px; flex-shrink: 0; flex-wrap: nowrap; }
         .btn-switch-user {
             background: rgba(255,255,255,0.12);
             border: 1px solid rgba(255,255,255,0.25);
             color: white;
             border-radius: 5px;
-            padding: 7px 11px;
-            font-size: 12px;
+            padding: 6px 9px;
+            font-size: 11px;
             font-weight: bold;
             cursor: pointer;
             white-space: nowrap;
-            min-height: 36px;
+            min-height: 32px;
             touch-action: manipulation;
         }
         .btn-switch-user:hover { background: rgba(255,255,255,0.22); }
+        @media (min-width: 500px) {
+            .session-bar { gap: 10px; padding: 10px 14px; }
+            .session-avatar { width: 36px; height: 36px; font-size: 15px; }
+            .session-name { font-size: 14px; }
+            .session-role { font-size: 11px; }
+            .btn-switch-user { padding: 7px 11px; font-size: 12px; min-height: 36px; }
+        }
 
         /* Locked field */
         input.locked-field {
@@ -107,6 +130,9 @@
 
         <!-- ── Session Bar ── -->
         <div class="session-bar" id="sessionBar">
+            <div class="session-logo">
+                <img src="LPwhite.png" alt="LP" style="height:28px;width:auto;object-fit:contain;" onerror="this.style.display='none'">
+            </div>
             <div class="session-avatar" id="sessionAvatar">?</div>
             <div class="session-info" id="sessionInfoWrap" style="position:relative;">
                 <!-- In dev mode the name itself is the profile-switcher trigger -->
@@ -122,13 +148,15 @@
                 </div>
             </div>
             <div class="session-actions">
-                <button class="btn-switch-user" onclick="openHistory()">Quotes</button>
+                <button class="btn-switch-user" onclick="openHistory()">Quotes History</button>
                 <button class="btn-switch-user" onclick="switchUser()">Log Out</button>
             </div>
         </div>
 
+        <div id="sessionBarSpacer"></div>
+
         <!-- ── Control Number Bar ── -->
-        <div class="ctrl-bar">
+        <div class="ctrl-bar" style="justify-content:flex-end;">
             <span class="ctrl-label">Control #:</span>
             <span class="ctrl-number" id="ctrlDisplay">—</span>
             <span class="ctrl-rev" id="ctrlRevDisplay"></span>
@@ -314,56 +342,55 @@
             </div>
 
             <!-- ── Grand Total ── -->
-            <div class="section">
-                <div class="grand-total-box">
-                    <div>
-                        <!-- Bank details -->
-                        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;width:100%;">
-                            <label style="font-size:13px;font-weight:bold;color:#2c3e50;white-space:nowrap;">Payment Details in PDF:</label>
-                            <div style="position:relative;display:inline-block;width:100%;max-width:280px;" id="bankDropdownWrapper">
-                                <button type="button" id="bankDropdownBtn" onclick="toggleBankDropdown()">
-                                    — Select payment details —
-                                    <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:10px;color:#888;">▼</span>
-                                </button>
-                                <div id="bankDropdownMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:white;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:200;min-width:220px;padding:6px 0;">
-                                    <label style="display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:14px;color:#2c3e50;min-height:48px;">
-                                        <input type="checkbox" value="bdo" class="bank-chk" onchange="updateBankLabel()" style="width:18px;height:18px;cursor:pointer;"> Banco De Oro (BDO)
-                                    </label>
-                                    <label style="display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:14px;color:#2c3e50;min-height:48px;">
-                                        <input type="checkbox" value="ub" class="bank-chk" onchange="updateBankLabel()" style="width:18px;height:18px;cursor:pointer;"> UnionBank (UB)
-                                    </label>
-                                    <label style="display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:14px;color:#2c3e50;min-height:48px;">
-                                        <input type="checkbox" value="gcash" class="bank-chk" onchange="updateBankLabel()" style="width:18px;height:18px;cursor:pointer;"> GCash
-                                    </label>
-                                </div>
-                            </div>
-                            <input type="hidden" id="bankDetailsSelect">
-                        </div>
-                        <!-- VAT options -->
-                        <div id="vatToggleRow">
-                            <label>
-                                <input type="checkbox" id="includeVatCheck" onchange="calculateTotals()" style="width:18px;height:18px;cursor:pointer;">
-                                Show VAT breakdown in PDF
+            <div class="grand-total-box" style="display:flex;flex-direction:column;gap:10px;">
+                <div style="display:flex;flex-direction:column;gap:6px;">
+                    <label style="font-size:12px;font-weight:bold;color:#2c3e50;">Payment Details in PDF:</label>
+                    <div style="position:relative;" id="bankDropdownWrapper">
+                        <button type="button" id="bankDropdownBtn" onclick="toggleBankDropdown()">
+                            — Select payment details —
+                            <span style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:10px;color:#888;">▼</span>
+                        </button>
+                        <div id="bankDropdownMenu" style="display:none;position:absolute;top:calc(100% + 4px);left:0;background:white;border:1px solid #ddd;border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:200;min-width:220px;padding:6px 0;">
+                            <label style="display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:14px;color:#2c3e50;min-height:48px;">
+                                <input type="checkbox" value="bdo" class="bank-chk" onchange="updateBankLabel()" style="width:18px;height:18px;cursor:pointer;"> Banco De Oro (BDO)
                             </label>
-                            <label>
-                                <input type="checkbox" id="vatExclusiveCheck" onchange="calculateTotals()" style="width:18px;height:18px;cursor:pointer;">
-                                VAT exclusive
+                            <label style="display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:14px;color:#2c3e50;min-height:48px;">
+                                <input type="checkbox" value="ub" class="bank-chk" onchange="updateBankLabel()" style="width:18px;height:18px;cursor:pointer;"> UnionBank (UB)
+                            </label>
+                            <label style="display:flex;align-items:center;gap:9px;padding:12px 14px;cursor:pointer;font-size:14px;color:#2c3e50;min-height:48px;">
+                                <input type="checkbox" value="gcash" class="bank-chk" onchange="updateBankLabel()" style="width:18px;height:18px;cursor:pointer;"> GCash
                             </label>
                         </div>
                     </div>
-                    <div id="vatBreakdownRow" style="display:none;">
-                        <span>Amount before VAT (excl.): <strong id="vatBaseAmount">₱ 0.00</strong></span>
-                        <span style="margin-left:20px;">VAT 12% (included): <strong id="vatAmount">₱ 0.00</strong></span>
+                    <input type="hidden" id="bankDetailsSelect">
+                </div>
+                <div style="display:flex;flex-direction:column;gap:8px;">
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;cursor:pointer;font-weight:normal;min-height:36px;">
+                        <input type="checkbox" id="includeVatCheck" onchange="if(this.checked)document.getElementById('vatExclusiveCheck').checked=false;calculateTotals();" style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">
+                        Show VAT breakdown in PDF
+                    </label>
+                    <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:#555;cursor:pointer;font-weight:normal;min-height:36px;">
+                        <input type="checkbox" id="vatExclusiveCheck" onchange="if(this.checked)document.getElementById('includeVatCheck').checked=false;calculateTotals();" style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">
+                        VAT exclusive
+                    </label>
+                </div>
+                <div style="text-align:right;border-top:1px solid #dde3ea;padding-top:10px;">
+                    <div id="vatBreakdownRow" style="display:none;font-size:12px;color:#555;margin-bottom:4px;line-height:1.8;">
+                        <div>Amount before VAT: <strong id="vatBaseAmount">₱ 0.00</strong></div>
+                        <div>VAT 12% (included): <strong id="vatAmount">₱ 0.00</strong></div>
                     </div>
-                    <span style="font-size: 18px; font-weight: bold; margin-right: 10px;">Grand Total:</span>
-                    <span id="total">₱ 0.00</span>
+                    <div style="font-size:18px;font-weight:bold;color:#2c3e50;">
+                        <span id="grandTotalLabel">Grand Total:</span> <span id="total">₱ 0.00</span>
+                    </div>
                 </div>
             </div>
 
             <!-- ── Action Buttons ── -->
-            <div style="display:flex;gap:12px;margin-top:4px;">
+            <div id="actionButtons" style="display:flex;gap:12px;margin-top:4px;flex-wrap:wrap;">
                 <button type="button" class="btn btn-preview-main" onclick="previewCurrentQuote()">Preview Quote</button>
-                <button type="submit" class="btn btn-submit">Generate Quote</button>
+                <button type="submit" id="btnGenerateQuote" class="btn btn-submit">Generate Quote</button>
+                <button type="button" id="btnOverwrite" class="btn btn-overwrite" onclick="overwriteQuote()" style="display:none;">↩ Overwrite Existing</button>
+                <button type="button" id="btnRevision" class="btn btn-revision" onclick="generateRevision()" style="display:none;">＋ Generate Revision <span style="font-size:12px;font-weight:normal;opacity:0.85;">(adds "Rev #" to PDF)</span></button>
             </div>
             <div id="loading" class="loading">Generating PDF... Please wait...</div>
         </form>
@@ -378,22 +405,31 @@
 
     <script>
         let _currentProfile = null;
-        const _IS_DEV = new URLSearchParams(window.location.search).get('dev') === '1';
+        const _IS_DEV = new URLSearchParams(window.location.search).get('dev') === '1'
+                     || sessionStorage.getItem('lp_dev_mode') === '1';
 
         (function checkSession() {
+            try {
+                const raw = sessionStorage.getItem('lp_session');
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (parsed && parsed.id) {
+                        _currentProfile = parsed;
+                        return;
+                    }
+                }
+            } catch { /* fall through */ }
+
             if (_IS_DEV) {
+                // Dev mode fallback: no real session present
                 _currentProfile = {
                     id: '__dev__', name: 'Dev User', position: 'Developer',
                     contact: '+63900-000-0000', email: 'dev@launchpadph.com', signature: null
                 };
                 return;
             }
-            try {
-                const raw = sessionStorage.getItem('lp_session');
-                if (!raw) { window.location.href = 'login.html'; return; }
-                _currentProfile = JSON.parse(raw);
-                if (!_currentProfile || !_currentProfile.id) { window.location.href = 'login.html'; return; }
-            } catch { window.location.href = 'login.html'; }
+
+            window.location.href = 'login.html';
         })();
 
         function switchUser() {
@@ -504,6 +540,38 @@
 
         if (_IS_DEV) loadDevProfiles();
 
+        /* ── Sticky session bar — triggers only after scrolling past its original position ── */
+        (function() {
+            const bar    = document.getElementById('sessionBar');
+            const spacer = document.getElementById('sessionBarSpacer');
+            let barBottom = 0;
+            let triggered = false;
+
+            function measureBar() {
+                if (!triggered) {
+                    barBottom = bar.getBoundingClientRect().bottom + (window.scrollY || window.pageYOffset);
+                }
+            }
+            window.addEventListener('load', measureBar);
+            window.addEventListener('resize', measureBar);
+
+            window.addEventListener('scroll', function() {
+                if (!barBottom) measureBar();
+                const scrollY = window.scrollY || window.pageYOffset;
+                if (!triggered && scrollY > barBottom) {
+                    triggered = true;
+                    spacer.style.height = bar.offsetHeight + 'px';
+                    spacer.style.display = 'block';
+                    bar.classList.add('is-sticky');
+                } else if (triggered && scrollY <= barBottom - 8) {
+                    triggered = false;
+                    bar.classList.remove('is-sticky');
+                    spacer.style.display = 'none';
+                    spacer.style.height = '0';
+                }
+            }, { passive: true });
+        })();
+
         document.addEventListener('click', function(e) {
             const switcher = document.getElementById('sessionInfoWrap');
             if (switcher && !switcher.contains(e.target)) {
@@ -546,6 +614,6 @@
         }
     </script>
 
-    <script src="app.js" defer></script>
+    <script src="app.js?v=2" defer></script>
 </body>
 </html>

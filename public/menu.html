@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LP Systems – Home</title>
+    <link rel="icon" type="image/png" href="LPwhite.png">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #1A2B45;
+            min-height: 100vh;
+            min-height: 100dvh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+            padding: 28px 16px 32px;
+        }
+
+        /* ── Card ── */
+        .card {
+            background: #ffffff;
+            border-radius: 18px;
+            padding: 32px 24px 28px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.35);
+            text-align: center;
+        }
+
+        /* ── Header / branding ── */
+        .logo {
+            max-width: 160px;
+            height: auto;
+            margin-bottom: 10px;
+        }
+
+        .address {
+            font-size: 11px;
+            color: #888;
+            line-height: 1.6;
+            margin-bottom: 18px;
+        }
+
+        .divider {
+            border: none;
+            border-top: 1px solid #eaecef;
+            margin: 0 0 22px;
+        }
+
+        /* ── User greeting ── */
+        .welcome-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #f0f4ff;
+            border-radius: 12px;
+            padding: 12px 16px;
+            margin-bottom: 26px;
+            text-align: left;
+        }
+
+        .avatar {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: #4A90E2;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: bold;
+            color: white;
+            flex-shrink: 0;
+            letter-spacing: -0.5px;
+        }
+
+        .welcome-text {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .welcome-label {
+            font-size: 11px;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 2px;
+        }
+
+        .welcome-name {
+            font-size: 16px;
+            font-weight: bold;
+            color: #1A2B45;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .welcome-role {
+            font-size: 11px;
+            color: #6a8aad;
+            margin-top: 1px;
+        }
+
+        /* ── Section labels ── */
+        .section-label {
+            font-size: 10px;
+            font-weight: bold;
+            text-transform: uppercase;
+            letter-spacing: 1.2px;
+            color: #aab0bc;
+            text-align: left;
+            margin-bottom: 10px;
+            margin-top: 4px;
+            padding-left: 2px;
+        }
+
+        /* ── Menu buttons ── */
+        .menu-btn {
+            display: flex;
+            align-items: center;
+            width: 100%;
+            padding: 18px 20px;
+            border-radius: 12px;
+            border: none;
+            cursor: pointer;
+            margin-bottom: 10px;
+            gap: 16px;
+            text-align: left;
+            transition: transform 0.13s ease, box-shadow 0.13s ease, background 0.13s ease;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .menu-btn:last-child { margin-bottom: 0; }
+
+        /* Active / enabled button */
+        .menu-btn.active-btn {
+            background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%);
+            box-shadow: 0 6px 20px rgba(39,174,96,0.30);
+        }
+
+        .menu-btn.active-btn:hover,
+        .menu-btn.active-btn:active {
+            transform: translateY(-1px);
+            box-shadow: 0 10px 28px rgba(39,174,96,0.38);
+        }
+
+        .menu-btn.active-btn:active {
+            transform: translateY(0px);
+        }
+
+        /* Disabled / coming soon buttons */
+        .menu-btn.disabled-btn {
+            background: #2C3A4E;
+            cursor: not-allowed;
+            box-shadow: none;
+        }
+
+        .menu-btn.disabled-btn:hover,
+        .menu-btn.disabled-btn:active {
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Icon circle */
+        .btn-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            font-size: 20px;
+        }
+
+        .active-btn .btn-icon {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .disabled-btn .btn-icon {
+            background: rgba(255,255,255,0.06);
+        }
+
+        /* Text block */
+        .btn-body {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .btn-title {
+            font-size: 15px;
+            font-weight: bold;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+        }
+
+        .active-btn .btn-title { color: #ffffff; }
+        .disabled-btn .btn-title { color: rgba(255,255,255,0.35); }
+
+        .btn-sub {
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .active-btn .btn-sub { color: rgba(255,255,255,0.78); }
+        .disabled-btn .btn-sub { color: rgba(255,255,255,0.22); }
+
+        /* Lock badge */
+        .lock-badge {
+            background: rgba(255,255,255,0.07);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 20px;
+            padding: 3px 9px;
+            font-size: 10px;
+            font-weight: bold;
+            color: rgba(255,255,255,0.28);
+            letter-spacing: 0.6px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        /* Arrow on active */
+        .arrow-icon {
+            font-size: 16px;
+            color: rgba(255,255,255,0.6);
+            flex-shrink: 0;
+        }
+
+        /* ── Sign out ── */
+        .btn-signout {
+            display: block;
+            width: 100%;
+            margin-top: 22px;
+            padding: 12px;
+            background: none;
+            border: 1px solid #e0e4ea;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: bold;
+            color: #8a95a3;
+            cursor: pointer;
+            letter-spacing: 0.3px;
+            transition: background 0.15s, color 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .btn-signout:hover { background: #f7f9fb; color: #e74c3c; border-color: #f5c6cb; }
+
+        /* ── Footer ── */
+        footer {
+            width: 100%;
+            max-width: 420px;
+            margin-top: 24px;
+            text-align: center;
+        }
+
+        .footer-icons {
+            display: flex;
+            justify-content: center;
+            gap: 20px;
+            margin-bottom: 8px;
+        }
+
+        .footer-icons a {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 44px;
+            height: 44px;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .footer-icons img {
+            width: 24px;
+            height: 24px;
+            object-fit: contain;
+            filter: brightness(0) invert(1) opacity(0.55);
+        }
+
+        .footer-copyright {
+            color: rgba(255,255,255,0.4);
+            font-size: 11px;
+            font-weight: bold;
+            letter-spacing: 0.2px;
+        }
+
+        /* ── Animate card in ── */
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(18px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+        .card { animation: slideUp 0.35s ease both; }
+        .menu-btn:nth-child(1) { animation: slideUp 0.35s 0.05s ease both; }
+        .menu-btn:nth-child(2) { animation: slideUp 0.35s 0.12s ease both; }
+        .menu-btn:nth-child(3) { animation: slideUp 0.35s 0.19s ease both; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .card, .menu-btn { animation: none; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <!-- Branding -->
+        <a href="https://launchpadph.com/" target="_blank" rel="noopener">
+            <img src="logo.png" alt="Launchpad Logo" class="logo" onerror="this.style.display='none'">
+        </a>
+        <div class="address">
+            Unit 3006 One Corporate Centre Building, Julia Vargas Avenue,<br>
+            Ortigas Center San Antonio Pasig City
+        </div>
+        <hr class="divider">
+
+        <!-- Welcome row -->
+        <div class="welcome-row">
+            <div class="avatar" id="userAvatar">?</div>
+            <div class="welcome-text">
+                <div class="welcome-label">Welcome back</div>
+                <div class="welcome-name" id="userName">Loading...</div>
+                <div class="welcome-role" id="userRole"></div>
+            </div>
+        </div>
+
+        <!-- Create Forms section -->
+        <div class="section-label">Create Forms</div>
+
+        <button class="menu-btn active-btn" onclick="goTo('index.html')">
+            <div class="btn-icon">📄</div>
+            <div class="btn-body">
+                <div class="btn-title">Quotations</div>
+                <div class="btn-sub">Generate price quotes & PDFs</div>
+            </div>
+            <span class="arrow-icon">›</span>
+        </button>
+
+        <button class="menu-btn active-btn" id="btnJobOrders" onclick="goTo('jo.html')">
+            <div class="btn-icon">📋</div>
+            <div class="btn-body">
+                <div class="btn-title">Job Orders</div>
+                <div class="btn-sub">Work orders & production forms</div>
+            </div>
+            <span class="arrow-icon">›</span>
+        </button>
+
+        <!-- Dashboard section -->
+        <div class="section-label" style="margin-top:18px;">Dashboard</div>
+
+        <button class="menu-btn disabled-btn" disabled>
+            <div class="btn-icon">📊</div>
+            <div class="btn-body">
+                <div class="btn-title">Sales Dashboard</div>
+                <div class="btn-sub">Reports, analytics & insights</div>
+            </div>
+            <span class="lock-badge">Soon</span>
+        </button>
+
+        <button class="btn-signout" onclick="signOut()">Sign Out</button>
+    </div>
+
+    <footer>
+        <div class="footer-icons">
+            <a href="https://www.facebook.com/Ph.LaunchpadAdvertising" target="_blank" rel="noopener">
+                <img src="FB.png" alt="Facebook">
+            </a>
+            <a href="https://www.instagram.com/ph.launchpadadvertising" target="_blank" rel="noopener">
+                <img src="IG.png" alt="Instagram">
+            </a>
+            <a href="https://www.linkedin.com/company/Ph.LaunchpadAdvertising?_l=en_US" target="_blank" rel="noopener">
+                <img src="Li.png" alt="LinkedIn">
+            </a>
+        </div>
+        <div class="footer-copyright">
+            Copyright &copy; 2026 Launchpad Holdings OPC. All Rights Reserved.
+        </div>
+    </footer>
+
+    <script>
+        const API = window.location.origin;
+
+        /* ── Guard: must be logged in ── */
+        function getSession() {
+            try { return JSON.parse(sessionStorage.getItem('lp_session')); } catch { return null; }
+        }
+
+        function isDevMode() {
+            return new URLSearchParams(window.location.search).get('dev') === '1'
+                || sessionStorage.getItem('lp_dev_mode') === '1';
+        }
+
+        // Dev mode from admin: inject pseudo-session ONLY if no real user is logged in
+        if (isDevMode()) {
+            sessionStorage.setItem('lp_dev_mode', '1');
+            const existing = getSession();
+            const isRealUser = existing && existing.id && existing.id !== '__dev__';
+            if (!isRealUser) {
+                sessionStorage.setItem('lp_session', JSON.stringify({
+                    id: '__dev__', name: 'Dev User', position: 'Developer'
+                }));
+            }
+        }
+
+        const session = getSession();
+        if (!session || !session.id) {
+            window.location.replace('login.html');
+        } else {
+            const first    = (session.name || '').split(' ')[0];
+            const initials = (session.name || '?')
+                .split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
+
+            document.getElementById('userName').textContent = first || session.name;
+            document.getElementById('userRole').textContent = session.position || '';
+            document.getElementById('userAvatar').textContent = initials;
+
+
+        }
+
+        function goTo(url) {
+            window.location.href = url;
+        }
+
+        function signOut() {
+            sessionStorage.removeItem('lp_session');
+            sessionStorage.removeItem('lp_dev_mode');
+            window.location.replace('login.html');
+        }
+    </script>
+</body>
+</html>

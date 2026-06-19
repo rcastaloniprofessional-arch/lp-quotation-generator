@@ -1,0 +1,1549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>LP Systems – Job Order</title>
+  <link rel="icon" type="image/png" href="LPwhite.png">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: Arial, sans-serif;
+      background: #5599E5;
+      min-height: 100vh;
+      padding: 16px 12px 32px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 10px;
+      padding: 20px 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+    }
+    @media (min-width: 600px) {
+      body { padding: 20px; }
+      .container { padding: 30px; }
+    }
+
+    /* ── Page header (logo + address) ── */
+    .page-header-brand {
+      text-align: center;
+      margin-bottom: 14px;
+    }
+    .page-header-brand img {
+      max-width: min(200px, 55vw);
+      height: auto;
+      margin-bottom: 6px;
+    }
+    .page-header-brand .addr {
+      font-size: 12px;
+      color: #000;
+      line-height: 1.5;
+    }
+    @media (min-width: 500px) {
+      .page-header-brand img { max-width: 250px; }
+      .page-header-brand .addr { font-size: 14px; }
+    }
+
+    /* ── Session bar sticky ── */
+    .session-bar {
+      display: flex; align-items: center; gap: 10px;
+      background: #2C3E50; color: white;
+      border-radius: 8px; padding: 10px 14px;
+      margin-bottom: 16px; font-size: 13px; flex-wrap: wrap;
+      transition: box-shadow 0.2s ease;
+    }
+    .session-bar.is-sticky {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 500;
+      border-radius: 0;
+      margin-bottom: 0;
+      padding: 8px 24px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+    }
+    .session-bar.is-sticky .session-role { display: none; }
+    .session-logo { display: none; }
+    .session-bar.is-sticky .session-logo {
+      display: flex; align-items: center;
+    }
+    #sessionBarSpacer { display: none; height: 0; }
+    .session-avatar {
+      width: 34px; height: 34px; background: #4A90E2;
+      border-radius: 50%; display: flex; align-items: center;
+      justify-content: center; font-weight: bold; font-size: 14px;
+      flex-shrink: 0; color: white;
+    }
+    .session-info { flex: 1; min-width: 0; }
+    .session-name { font-weight: bold; font-size: 14px; }
+    .session-role { font-size: 11px; opacity: 0.65; }
+    .btn-nav {
+      background: rgba(255,255,255,0.12);
+      border: 1px solid rgba(255,255,255,0.25);
+      color: white; border-radius: 5px;
+      padding: 6px 11px; font-size: 12px; font-weight: bold;
+      cursor: pointer; white-space: nowrap;
+      touch-action: manipulation;
+    }
+    .btn-nav:hover { background: rgba(255,255,255,0.2); }
+
+    /* ── Page title ── */
+    .page-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 20px; flex-wrap: wrap; gap: 10px;
+    }
+    .page-title {
+      font-size: 20px; font-weight: bold; color: #1A2B45;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .jo-ctrl-badge {
+      background: #f0f4ff; border: 1px solid #c5d5f0;
+      border-radius: 6px; padding: 4px 12px;
+      font-size: 14px; font-weight: bold; color: #2c3e50;
+      font-family: 'Courier New', monospace; letter-spacing: 0.5px;
+    }
+
+    /* ── Sections ── */
+    .section {
+      margin-bottom: 20px; padding: 16px;
+      background: #f8f9fa; border-radius: 8px;
+      border: 1px solid #e9ecef;
+    }
+    h3 {
+      color: #2C3E50; margin-bottom: 15px;
+      padding-bottom: 8px; border-bottom: 2px solid #4A90E2;
+      font-size: 15px;
+    }
+
+    .form-grid {
+      display: grid; grid-template-columns: 1fr; gap: 12px;
+    }
+    @media (min-width: 560px) {
+      .form-grid { grid-template-columns: repeat(2, 1fr); gap: 15px; }
+    }
+    .form-group { display: flex; flex-direction: column; }
+    .form-group.full-width { grid-column: 1 / -1; }
+
+    label {
+      font-size: 12px; font-weight: bold;
+      color: #34495e; margin-bottom: 5px;
+    }
+    input:not([type="checkbox"]), select, textarea {
+      padding: 10px; border: 1px solid #ddd;
+      border-radius: 4px; font-size: 16px;
+      width: 100%; -webkit-appearance: none;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none; border-color: #4A90E2;
+    }
+
+    /* ── Items table area ── */
+    .items-header {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 12px; flex-wrap: wrap; gap: 8px;
+    }
+    .items-header h3 { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+
+    .btn-add-item {
+      background: #2ecc71; color: white; border: none;
+      border-radius: 6px; padding: 8px 16px;
+      font-size: 13px; font-weight: bold; cursor: pointer;
+      touch-action: manipulation;
+    }
+    .btn-add-item:hover { background: #27ae60; }
+
+    /* ══ Quote Group Card ══ */
+    .quote-group {
+      background: #f8f9fa; border: 1px solid #dce3ed;
+      border-radius: 12px; margin-bottom: 14px; overflow: hidden;
+    }
+
+    /* Group header: ctrl pill + PROJECT NAME label + input + remove */
+    .qg-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; background: white;
+      border-bottom: 1px solid #e8ecf0; flex-wrap: wrap;
+    }
+    .qg-ctrl-tag {
+      background: #1A2B45; color: white;
+      border-radius: 20px; padding: 4px 12px;
+      font-size: 12px; font-weight: bold;
+      font-family: 'Courier New', monospace;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .qg-ctrl-tag.standalone { background: #95a5a6; }
+    .qg-proj-label {
+      font-size: 12px; font-weight: bold; color: #555;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .quote-proj-input {
+      flex: 1; min-width: 160px;
+      border: 1px solid #dde3ed; border-radius: 8px;
+      padding: 7px 12px; font-size: 13px; color: #1A2B45;
+      background: white;
+    }
+    .quote-proj-input:focus { outline: none; border-color: #4A90E2; }
+    .btn-remove-group {
+      background: none; border: none; color: #ccc;
+      font-size: 16px; cursor: pointer; padding: 2px 4px;
+      flex-shrink: 0; margin-left: auto;
+    }
+    .btn-remove-group:hover { color: #e74c3c; }
+
+    /* Column headers — removed, replaced by inline labels per field */
+
+    /* Items container inside group */
+    .quote-group-items { padding: 8px 14px 2px; }
+
+    /* Group footer: + Add Item right-aligned */
+    .qg-footer {
+      display: flex; justify-content: flex-end;
+      padding: 8px 14px 10px;
+    }
+    .btn-add-item-in-group {
+      background: #2ecc71; color: white; border: none;
+      border-radius: 20px; padding: 7px 16px;
+      font-size: 12px; font-weight: bold; cursor: pointer;
+      touch-action: manipulation;
+    }
+    .btn-add-item-in-group:hover { background: #27ae60; }
+
+    /* ══ Item Row ══ */
+    .item-wrapper {
+      background: white; border: 1px solid #e8ecf0;
+      border-radius: 10px; padding: 10px 12px;
+      margin-bottom: 8px;
+    }
+
+    /* Top row: num | SIZE | MATERIAL | QTY | ECO UV PLOT LASER */
+    .ir-top {
+      display: flex; align-items: flex-end; gap: 8px;
+      flex-wrap: wrap; margin-bottom: 10px;
+    }
+    .ir-num-col {
+      display: flex; flex-direction: column; align-items: center; flex-shrink: 0;
+    }
+    .ir-num {
+      width: 30px; height: 30px; min-width: 30px;
+      background: #4A90E2; color: white; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: bold; font-size: 13px;
+    }
+
+    /* Field labels above inputs */
+    .ir-field-label {
+      font-size: 9px; font-weight: bold; color: #aaa;
+      text-transform: uppercase; letter-spacing: 0.7px;
+      margin-bottom: 3px; white-space: nowrap;
+    }
+
+    /* SIZE col */
+    .ir-size-col { display: flex; flex-direction: column; }
+    .ir-size { display: flex; align-items: center; gap: 4px; }
+    .ir-size input {
+      width: 52px; padding: 7px 5px; font-size: 13px;
+      border: 1px solid #ddd; border-radius: 8px; text-align: center;
+    }
+    .ir-x { color: #ccc; font-weight: bold; font-size: 13px; }
+
+    /* MATERIAL */
+    .ir-mat { flex: 1; min-width: 160px; display: flex; flex-direction: column; }
+    .ir-mat input {
+      width: 100%; padding: 7px 10px; font-size: 13px;
+      border: 1px solid #ddd; border-radius: 8px;
+    }
+
+    /* QTY */
+    .ir-qty { width: 56px; display: flex; flex-direction: column; }
+    .ir-qty input {
+      width: 100%; padding: 7px 6px; font-size: 13px;
+      border: 1px solid #ddd; border-radius: 8px; text-align: center;
+    }
+
+    /* ECO / UV / PLOT / LASER — label on top, checkbox below, bottom-aligned */
+    .ir-checks {
+      display: flex; gap: 8px; flex-shrink: 0; align-items: flex-end;
+      padding-bottom: 2px;
+    }
+    .ir-chk {
+      display: flex; flex-direction: column; align-items: center;
+      gap: 3px; cursor: pointer;
+    }
+    .ir-chk span {
+      font-size: 9px; font-weight: bold; color: #aaa;
+      text-transform: uppercase; letter-spacing: 0.5px;
+    }
+    .ir-chk input[type="checkbox"] {
+      width: 16px; height: 16px; margin: 0; cursor: pointer;
+      accent-color: #4A90E2;
+    }
+
+    /* Bottom row: FILE NAME | OTHER DETAILS | delete */
+    .ir-bottom {
+      display: flex; align-items: flex-end; gap: 8px;
+      flex-wrap: wrap; padding-left: 38px;
+    }
+    .ir-file-col { display: flex; flex-direction: column; flex: 1; min-width: 140px; }
+    .ir-file-wrap {
+      display: flex; align-items: center; gap: 6px;
+      border: 1px solid #ddd; border-radius: 8px;
+      padding: 6px 10px; background: white; cursor: pointer;
+    }
+    .ir-file-wrap:hover { border-color: #4A90E2; background: #f8fbff; }
+    .ir-file-icon { font-size: 13px; opacity: 0.45; flex-shrink: 0; }
+    .ir-file-wrap input {
+      border: none !important; padding: 0 !important; outline: none !important;
+      font-size: 13px; flex: 1; min-width: 0; background: transparent;
+      cursor: pointer;
+    }
+    .ir-other { flex: 1.4; min-width: 130px; display: flex; flex-direction: column; }
+    .ir-other input {
+      width: 100%; padding: 7px 10px; font-size: 13px;
+      border: 1px solid #ddd; border-radius: 8px;
+    }
+
+    /* Delete button */
+    .btn-remove-item {
+      background: #e74c3c; color: white; border: none;
+      border-radius: 50%; width: 32px; height: 32px; min-width: 32px;
+      font-size: 14px; cursor: pointer; display: flex;
+      align-items: center; justify-content: center;
+      flex-shrink: 0; touch-action: manipulation;
+    }
+    .btn-remove-item:hover { background: #c0392b; }
+
+    input:focus { outline: none; border-color: #4A90E2 !important; }
+
+    /* mobile label helpers — no longer needed but keep for compat */
+    .mobile-label { display: none; }
+
+    /* ── Bottom action bar ── */
+    .action-bar {
+      display: flex; gap: 12px; flex-wrap: wrap;
+      margin-top: 24px; padding-top: 20px;
+      border-top: 2px solid #eee;
+      align-items: center;
+    }
+
+    .btn-generate {
+      flex: 1; min-width: 200px;
+      padding: 16px; background: #1A2B45;
+      color: white; border: none; border-radius: 10px;
+      font-size: 16px; font-weight: bold; cursor: pointer;
+      letter-spacing: 0.5px; transition: background 0.2s;
+      touch-action: manipulation;
+    }
+    .btn-generate:hover { background: #2C3E50; }
+    .btn-generate:disabled { background: #b2c9e8; cursor: not-allowed; }
+
+    .btn-history-open {
+      padding: 16px 20px;
+      background: #4A90E2; color: white;
+      border: none; border-radius: 10px;
+      font-size: 15px; font-weight: bold; cursor: pointer;
+      touch-action: manipulation;
+    }
+    .btn-history-open:hover { background: #2980b9; }
+
+    .btn-preview {
+      padding: 16px 20px;
+      background: #7f8c8d; color: white;
+      border: none; border-radius: 10px;
+      font-size: 15px; font-weight: bold; cursor: pointer;
+      touch-action: manipulation; white-space: nowrap;
+    }
+    .btn-preview:hover { background: #636e72; }
+
+    /* ── Loading overlay ── */
+    #loading {
+      display: none; position: fixed;
+      inset: 0; background: rgba(0,0,0,0.5);
+      z-index: 1000; align-items: center; justify-content: center;
+    }
+    #loading.show { display: flex; }
+    .loading-box {
+      background: white; border-radius: 12px;
+      padding: 28px 36px; text-align: center;
+    }
+    .spinner {
+      width: 40px; height: 40px; border: 4px solid #e9ecef;
+      border-top-color: #4A90E2; border-radius: 50%;
+      animation: spin 0.7s linear infinite; margin: 0 auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .loading-box p { font-size: 14px; color: #555; font-weight: bold; }
+
+    /* ── History Modal ── */
+    .modal-overlay {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.55); z-index: 900;
+      align-items: flex-start; justify-content: center;
+      padding: 20px 12px;
+      overflow-y: auto;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal-box {
+      background: white; border-radius: 14px;
+      width: 100%; max-width: 680px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      display: flex; flex-direction: column;
+      max-height: 85vh;
+    }
+    .modal-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 20px; border-bottom: 1px solid #eee;
+    }
+    .modal-header h3 { font-size: 16px; color: #1A2B45; border: none; padding: 0; margin: 0; }
+    .btn-modal-close {
+      background: none; border: none; font-size: 20px;
+      cursor: pointer; color: #aaa; line-height: 1;
+    }
+    .modal-search {
+      padding: 12px 16px; border-bottom: 1px solid #eee;
+    }
+    .modal-search input {
+      width: 100%; padding: 9px 12px;
+      border: 1px solid #ddd; border-radius: 6px;
+      font-size: 14px;
+    }
+    .modal-body { flex: 1; overflow-y: auto; padding: 12px 16px; }
+    .history-empty { color: #aaa; text-align: center; padding: 32px 0; font-size: 14px; }
+    .history-count { font-size: 12px; color: #aaa; padding: 0 4px 8px; }
+
+    .jo-history-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 14px; border: 1px solid #e8ecf0;
+      border-radius: 8px; margin-bottom: 8px; cursor: pointer;
+      transition: background 0.15s;
+    }
+    .jo-history-item:hover { background: #f5f8ff; }
+    .jo-ctrl-tag {
+      background: #1A2B45; color: white;
+      border-radius: 5px; padding: 3px 8px;
+      font-size: 11px; font-weight: bold;
+      font-family: 'Courier New', monospace;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .jo-hist-info { flex: 1; min-width: 0; }
+    .jo-hist-client { font-weight: bold; font-size: 13px; color: #2c3e50; }
+    .jo-hist-meta { font-size: 11px; color: #888; margin-top: 2px; }
+    .btn-delete-jo {
+      background: none; border: none; font-size: 16px;
+      cursor: pointer; padding: 4px; opacity: 0.5;
+      flex-shrink: 0;
+    }
+    .btn-delete-jo:hover { opacity: 1; }
+
+    .modal-footer {
+      padding: 12px 16px; border-top: 1px solid #eee;
+      text-align: right;
+    }
+
+    /* ── Dev profile dropdown ── */
+    .dev-badge {
+      background: #7f5af0; color: white;
+      font-size: 10px; font-weight: bold;
+      border-radius: 4px; padding: 2px 6px;
+      letter-spacing: 0.5px; margin-left: 6px;
+    }
+    .dev-profile-dropdown {
+      display: none; position: absolute;
+      top: calc(100% + 6px); left: 0;
+      background: white; border: 1px solid #dde3ed;
+      border-radius: 10px; min-width: 220px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.15);
+      z-index: 500; overflow: hidden;
+    }
+    .dev-profile-dropdown.open { display: block; }
+    .dev-dropdown-header {
+      padding: 10px 14px 6px;
+      font-size: 10px; font-weight: bold;
+      text-transform: uppercase; letter-spacing: 0.8px;
+      color: #aaa; border-bottom: 1px solid #f0f0f0;
+    }
+    .dev-profile-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; cursor: pointer;
+      font-size: 13px; color: #2c3e50;
+      min-height: 44px;
+    }
+    .dev-profile-item:hover { background: #f4f7fc; }
+    .dev-avatar-sm {
+      width: 28px; height: 28px; border-radius: 50%;
+      background: #4A90E2; color: white;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: bold; font-size: 12px; flex-shrink: 0;
+    }
+    .dev-avatar-sm.all { background: #7f5af0; font-size: 14px; }
+
+    /* ── Items bottom bar ── */
+    .items-bottom-bar {
+      display: flex; gap: 10px; margin-top: 14px;
+      flex-wrap: wrap;
+    }
+    .btn-add-quote {
+      background: #7f8c8d; color: white; border: none;
+      border-radius: 20px; padding: 9px 18px;
+      font-size: 13px; font-weight: bold; cursor: pointer;
+      touch-action: manipulation;
+    }
+    .btn-add-quote:hover { background: #636e72; }
+
+    /* ── Load Quote Modal list ── */
+    .lqm-quote-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; border: 1px solid #e8ecf0;
+      border-radius: 8px; margin-bottom: 8px;
+    }
+    .lqm-ctrl { 
+      background: #1A2B45; color: white;
+      border-radius: 5px; padding: 3px 9px;
+      font-size: 11px; font-weight: bold;
+      font-family: "Courier New", monospace; white-space: nowrap; flex-shrink: 0;
+    }
+    .lqm-info { flex: 1; min-width: 0; }
+    .lqm-project { font-weight: bold; font-size: 13px; color: #1A2B45; }
+    .lqm-meta { font-size: 11px; color: #888; margin-top: 2px; }
+    .btn-lqm-load {
+      background: #4A90E2; color: white; border: none;
+      border-radius: 6px; padding: 7px 14px;
+      font-size: 12px; font-weight: bold; cursor: pointer;
+      white-space: nowrap; flex-shrink: 0;
+    }
+    .btn-lqm-load:hover { background: #2980b9; }
+    .btn-lqm-ordered {
+      background: #2ecc71; color: white; border: none;
+      border-radius: 6px; padding: 7px 14px;
+      font-size: 12px; font-weight: bold;
+      white-space: nowrap; flex-shrink: 0;
+      cursor: default; opacity: 0.85;
+    }
+  </style>
+</head>
+<body>
+
+<div id="loading">
+  <div class="loading-box">
+    <div class="spinner"></div>
+    <p>Generating PDF…</p>
+  </div>
+</div>
+
+<!-- History Modal -->
+<div class="modal-overlay" id="historyModal">
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3>📋 Job Order History</h3>
+      <button class="btn-modal-close" onclick="closeHistory()">✕</button>
+    </div>
+    <div class="modal-search">
+      <input type="text" id="historySearch" placeholder="Search by client, JO number…" oninput="renderHistory()">
+    </div>
+    <div class="modal-body">
+      <div class="history-count" id="historyCount"></div>
+      <div id="historyList"><div class="history-empty">Loading…</div></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-nav" onclick="closeHistory()">Close</button>
+    </div>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- Page header: logo + address -->
+  <div class="page-header-brand">
+    <img src="logo.png" alt="Launchpad Logo" onerror="this.style.display='none'">
+    <div class="addr">
+      Unit 3006 One Corporate Centre Building, Julia Vargas Avenue,<br>
+      Ortigas Center San Antonio Pasig City
+    </div>
+    <h2 style="font-size:20px;font-weight:bold;text-transform:uppercase;margin-top:14px;color:#2C3E50;letter-spacing:1px;">Job Order Form</h2>
+  </div>
+
+  <!-- Session bar -->
+  <div class="session-bar" id="sessionBar" style="position:relative;">
+    <!-- Logo shown only when sticky -->
+    <div class="session-logo">
+      <img src="LPwhite.png" alt="LP" style="height:26px;width:auto;object-fit:contain;" onerror="this.style.display='none'">
+    </div>
+    <div class="session-avatar" id="sessionAvatar">?</div>
+    <div class="session-info" id="sessionInfoBlock" style="flex:1;min-width:0;cursor:default;" onclick="toggleDevDropdown()">
+      <div class="session-name" id="sessionName">—</div>
+      <div class="session-role" id="sessionRole"></div>
+    </div>
+    <!-- Dev profile dropdown -->
+    <div class="dev-profile-dropdown" id="devProfileDropdown">
+      <div class="dev-dropdown-header">Switch Profile</div>
+      <div id="devProfileList"></div>
+    </div>
+    <button class="btn-nav" onclick="window.location.href='menu.html'">← Menu</button>
+    <button class="btn-nav" onclick="signOut()">Sign Out</button>
+  </div>
+
+  <div id="sessionBarSpacer"></div>
+
+  <!-- Page header -->
+  <div class="page-header">
+    <div class="page-title" style="align-items:center;gap:8px;">
+      📋 <span style="font-size:18px;font-weight:bold;color:#1A2B45;">JOB ORDER NO:</span>
+      <span style="font-size:18px;font-weight:bold;color:#1A2B45;font-family:'Courier New',monospace;">JO26 -</span>
+      <input type="text" id="joNumber" placeholder="0001" maxlength="10"
+             autocomplete="off" oninput="refreshJoDisplay()"
+             style="width:80px;font-size:18px;font-weight:bold;font-family:'Courier New',monospace;
+                    border:1.5px solid #c5d5f0;border-radius:6px;padding:4px 8px;
+                    color:#1A2B45;background:#f0f4ff;text-align:center;">
+    </div>
+  </div>
+
+  <!-- JO Info -->
+  <div class="section">
+    <h3>Job Order Details</h3>
+    <div class="form-grid">
+      <div class="form-group">
+        <label for="joClient">Client / Company <span style="color:#e74c3c;">*</span></label>
+        <select id="joClient"
+                style="font-size:16px;padding:10px 36px 10px 10px;border:1px solid #ddd;border-radius:4px;
+                       width:100%;background:#fff url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%228%22 viewBox=%220 0 12 8%22><path d=%22M1 1l5 5 5-5%22 stroke=%22%23555%22 stroke-width=%221.8%22 fill=%22none%22 stroke-linecap=%22round%22/></svg>') no-repeat right 12px center;
+                       -webkit-appearance:none;appearance:none;cursor:pointer;color:#1A2B45;">
+          <option value="" disabled selected>— Select a client —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="joDate">Date</label>
+        <input type="date" id="joDate">
+      </div>
+      <div class="form-group">
+        <label for="joIssuedBy">Issued By</label>
+        <input type="text" id="joIssuedBy" placeholder="Sales rep name" autocomplete="off" readonly
+               style="background:#f0f4ff;color:#555;">
+      </div>
+      <div class="form-group">
+        <label>Time <span style="font-size:10px;color:#888;">(captured at generation)</span></label>
+        <div id="joTimeClock" style="padding:10px;border:1px solid #ddd;border-radius:4px;
+             background:#f0f4ff;font-size:16px;font-weight:bold;color:#1A2B45;
+             font-family:'Courier New',monospace;letter-spacing:1px;text-align:center;">
+          —:— —
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Items -->
+  <div class="section">
+    <div class="items-header">
+      <h3>Items</h3>
+    </div>
+
+    <div id="itemsContainer"></div>
+
+    <div class="items-bottom-bar">
+      <button class="btn-add-quote" onclick="openLoadQuoteModal()">📂 Add Quote</button>
+      <button class="btn-add-item" onclick="addStandaloneGroup()">+ Add Item</button>
+    </div>
+  </div>
+
+  <!-- Schedule & Instructions (moved below Items) -->
+  <div class="section">
+    <h3>Schedule & Instructions</h3>
+    <div class="form-grid">
+      <div class="form-group full-width">
+        <label for="joDeadline">Deadline / Schedule Notes</label>
+        <textarea id="joDeadline" rows="2" placeholder="e.g. Dec 25, 2026 or ASAP — additional schedule details…" autocomplete="off"></textarea>
+      </div>
+      <div class="form-group full-width">
+        <label for="joSpecialInstructions">Special Instructions</label>
+        <textarea id="joSpecialInstructions" rows="3" placeholder="Lamination, mounting, folding details, etc."></textarea>
+      </div>
+    </div>
+  </div>
+
+  <!-- Load Quote Modal -->
+  <div class="modal-overlay" id="loadQuoteModal">
+    <div class="modal-box" style="max-width:700px;">
+      <div class="modal-header">
+        <div>
+          <div style="font-size:16px;font-weight:bold;color:#1A2B45;">Load from quote</div>
+          <div style="font-size:13px;color:#4A90E2;font-weight:bold;margin-top:2px;" id="lqmCompanyLabel"></div>
+        </div>
+        <button class="btn-modal-close" onclick="closeLoadQuoteModal()">✕</button>
+      </div>
+      <div class="modal-search">
+        <input type="text" id="lqmSearch" placeholder="Search by project name or control number…" oninput="renderLoadQuoteList()">
+      </div>
+      <div class="modal-body" id="lqmBody">
+        <div class="history-empty">Loading…</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-nav" onclick="closeLoadQuoteModal()">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action bar -->
+  <div class="action-bar">
+    <button class="btn-history-open" onclick="openHistory()">📂 History</button>
+    <button class="btn-preview" id="btnPreview" onclick="previewJO()">
+      👁 Preview
+    </button>
+    <button class="btn-generate" id="btnGenerate" onclick="generateJO()">
+      🖨️ Generate JO (5-page PDF)
+    </button>
+  </div>
+
+</div><!-- /container -->
+
+<script>
+  const API = window.location.origin;
+
+  function isDevMode() {
+    return new URLSearchParams(window.location.search).get('dev') === '1'
+        || sessionStorage.getItem('lp_dev_mode') === '1';
+  }
+
+  /* ── Session guard ── */
+  let _currentProfile = null;
+  (function() {
+    try { _currentProfile = JSON.parse(sessionStorage.getItem('lp_session')); } catch {}
+    if (!_currentProfile || !_currentProfile.id) {
+      window.location.replace('login.html'); return;
+    }
+    const first    = (_currentProfile.name || '').split(' ')[0];
+    const initials = (_currentProfile.name || '?').split(' ').map(w => w[0]).slice(0,2).join('').toUpperCase();
+    document.getElementById('sessionName').textContent   = _currentProfile.name || '—';
+    document.getElementById('sessionRole').textContent   = _currentProfile.position || '';
+    document.getElementById('sessionAvatar').textContent = initials;
+    document.getElementById('joIssuedBy').value = _currentProfile.name || '';
+    loadClientDropdown();
+
+    if (isDevMode()) {
+      const sn = document.getElementById('sessionName');
+      sn.textContent = (_currentProfile.name || '—') + ' ▾';
+      sn.innerHTML += ' <span class="dev-badge">DEV</span>';
+      document.getElementById('sessionInfoBlock').style.cursor = 'pointer';
+      loadJoDevProfiles();
+    }
+  })();
+
+  function signOut() {
+    sessionStorage.removeItem('lp_session');
+    window.location.replace('login.html');
+  }
+
+  /* ── Load client dropdown from user's past quotations ── */
+  async function loadClientDropdown(restoreValue) {
+    const sel = document.getElementById('joClient');
+    if (!sel) return;
+    try {
+      const r = await fetch(`${API}/api/quotes`);
+      if (!r.ok) return;
+      const db = await r.json();
+      const myName = (_currentProfile?.name || '').trim().toLowerCase();
+
+      // Collect unique company names from this user's quotes
+      const companies = new Set();
+      Object.values(db).forEach(q => {
+        const qSales = (q.salesName || '').trim().toLowerCase();
+        if (!myName || qSales === myName) {
+          const co = (q.company || '').trim();
+          if (co) companies.add(co);
+        }
+      });
+
+      const sorted = [...companies].sort((a,b) => a.localeCompare(b));
+
+      // Rebuild options (keep the placeholder)
+      sel.innerHTML = '<option value="" disabled>— Select a client —</option>'
+        + sorted.map(c => `<option value="${c.replace(/"/g,'&quot;')}">${c.replace(/</g,'&lt;')}</option>`).join('');
+
+      // Restore previously selected value if provided
+      const toRestore = restoreValue || sel.dataset.pendingRestore || '';
+      if (toRestore) {
+        // If the value isn't in the list yet, add it so it can be selected
+        if (![...sel.options].some(o => o.value === toRestore)) {
+          const extra = document.createElement('option');
+          extra.value = toRestore;
+          extra.textContent = toRestore;
+          sel.appendChild(extra);
+        }
+        sel.value = toRestore;
+        delete sel.dataset.pendingRestore;
+      } else {
+        sel.value = '';
+      }
+    } catch { /* silently fail */ }
+  }
+
+  /* ── Date default + running clock display ── */
+  document.getElementById('joDate').valueAsDate = new Date();
+
+  function formatClock(d) {
+    let hh = d.getHours(), mm = d.getMinutes(), ss = d.getSeconds();
+    const ampm = hh >= 12 ? 'PM' : 'AM';
+    hh = hh % 12 || 12;
+    return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}:${String(ss).padStart(2,'0')} ${ampm}`;
+  }
+  setInterval(() => {
+    const el = document.getElementById('joTimeClock');
+    if (el) el.textContent = formatClock(new Date());
+  }, 1000);
+  // Set immediately
+  (function(){ const el = document.getElementById('joTimeClock'); if(el) el.textContent = formatClock(new Date()); })();
+
+  /* ── JO display ── */
+  function refreshJoDisplay() {
+    const num = document.getElementById('joNumber').value.trim() || '____';
+    document.getElementById('joCtrlDisplay').textContent = `JO26 - ${num}`;
+  }
+
+  /* ── Items / Quote Groups ── */
+  let _groupCount = 0;   // total groups ever created (for unique IDs)
+  let _sessionLoadedCtrlNums = new Set(); // ctrl nums loaded this session
+
+  /* Create a new quote group and append to #itemsContainer.
+     opts: { ctrlNum, projectName, items: [{media,sizeW,sizeH,sizeUnit,qty,...}] }
+  */
+  function addGroup(opts = {}) {
+    _groupCount++;
+    const gid      = _groupCount;
+    const ctrlNum  = opts.ctrlNum  || '';   // e.g. "Q26-0001" or '' for standalone
+    const projName = opts.projectName || '';
+    const isStand  = !ctrlNum;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'quote-group';
+    wrap.id = 'qgroup-' + gid;
+    wrap.dataset.ctrlNum = ctrlNum;
+
+    wrap.innerHTML = `
+      <div class="qg-header">
+        <div class="qg-ctrl-tag${isStand ? ' standalone' : ''}">${isStand ? '—' : ctrlNum}</div>
+        <span class="qg-proj-label">MACHINE:</span>
+        <input type="text" class="quote-proj-input" placeholder="Enter project name…"
+               value="${escHtml(projName)}">
+        <button class="btn-remove-group" title="Remove group" onclick="removeGroup(${gid})">✕</button>
+      </div>
+      <div class="quote-group-items" id="qgitems-${gid}"></div>
+      <div class="qg-footer">
+        <button class="btn-add-item-in-group" onclick="addItemToGroup(${gid})">+ Add Item</button>
+      </div>`;
+
+    document.getElementById('itemsContainer').appendChild(wrap);
+
+    // Add provided items
+    const rows = opts.items || [];
+    if (rows.length) {
+      rows.forEach(item => addItemToGroup(gid, item));
+    } else {
+      addItemToGroup(gid);
+    }
+    return gid;
+  }
+
+  function removeGroup(gid) {
+    const el = document.getElementById('qgroup-' + gid);
+    if (!el) return;
+    const ctrlNum = el.dataset.ctrlNum;
+    if (ctrlNum) _sessionLoadedCtrlNums.delete(ctrlNum);
+    el.remove();
+  }
+
+  /* Add standalone group (bottom "+ Add Item" button) */
+  function addStandaloneGroup() {
+    addGroup({});
+  }
+
+  let _itemCount = 0;
+
+  function addItemToGroup(gid, saved) {
+    _itemCount++;
+    const id  = _itemCount;
+    const container = document.getElementById('qgitems-' + gid);
+    if (!container) return;
+
+    // Count existing items in this group for local sequence number
+    const localNum = container.querySelectorAll('.item-wrapper').length + 1;
+
+    const wrap = document.createElement('div');
+    wrap.className = 'item-wrapper';
+    wrap.id = 'joItem' + id;
+    wrap.style.cssText = 'border:1px solid #dce3ed;border-radius:8px;padding:10px 12px;margin-bottom:8px;background:white;position:relative;';
+
+    wrap.innerHTML = `
+      <div class="ir-top">
+        <div class="ir-num-col">
+          <div class="ir-field-label">&nbsp;</div>
+          <div class="ir-num">${localNum}</div>
+        </div>
+        <div class="ir-size-col">
+          <div class="ir-field-label">Size</div>
+          <div class="ir-size">
+            <input type="number" step="any" min="0" placeholder="" class="jo-sizeW"
+                   value="${escHtml(saved?.sizeW||'')}">
+            <span class="ir-x">x</span>
+            <input type="number" step="any" min="0" placeholder="" class="jo-sizeH"
+                   value="${escHtml(saved?.sizeH||'')}">
+          </div>
+        </div>
+        <div style="display:flex;flex-direction:column;">
+          <div class="ir-field-label">UOM</div>
+          <select class="jo-unit" style="width:56px;padding:7px 4px;font-size:13px;border:1px solid #ddd;border-radius:8px;">
+            <option value="ft" ${(saved?.sizeUnit||'ft')==='ft'?'selected':''}>ft</option>
+            <option value="in" ${(saved?.sizeUnit||'')==='in'?'selected':''}>in</option>
+            <option value="cm" ${(saved?.sizeUnit||'')==='cm'?'selected':''}>cm</option>
+            <option value="m" ${(saved?.sizeUnit||'')==='m'?'selected':''}>m</option>
+            <option value="mm" ${(saved?.sizeUnit||'')==='mm'?'selected':''}>mm</option>
+          </select>
+        </div>
+        <div class="ir-mat">
+          <div class="ir-field-label">Material</div>
+          <input type="text" class="jo-media" placeholder=""
+                 autocomplete="off" value="${escHtml(saved?.media||saved?.material||'')}">
+        </div>
+        <div class="ir-qty">
+          <div class="ir-field-label">Qty</div>
+          <input type="number" min="1" value="${saved?.qty||''}" class="jo-qty">
+        </div>
+        <div class="ir-checks">
+          <label class="ir-chk"><span>GZ</span><input type="checkbox" class="jo-eco"   ${saved?.eco  ?'checked':''}></label>
+          <label class="ir-chk"><span>UV</span><input type="checkbox" class="jo-uv"    ${saved?.uv   ?'checked':''}></label>
+          <label class="ir-chk"><span>PLOT</span><input type="checkbox" class="jo-plot"  ${saved?.plot ?'checked':''}></label>
+          <label class="ir-chk"><span>LASER</span><input type="checkbox" class="jo-laser" ${saved?.laser?'checked':''}></label>
+        </div>
+      </div>
+      <div class="ir-bottom">
+        <div class="ir-file-col">
+          <div class="ir-field-label">Attach File</div>
+          <div class="ir-file-wrap" onclick="document.getElementById('filePick${id}').click()">
+            <span class="ir-file-icon">📎</span>
+            <input type="text" placeholder="Attach file…" class="jo-filename" id="filenameDisplay${id}"
+                   value="${escHtml(saved?.filename||'')}" autocomplete="off" readonly
+                   style="cursor:pointer;">
+            <input type="file" id="filePick${id}" accept="image/*,.pdf,.ai,.psd,.eps,.svg" style="display:none;"
+                   onchange="handleFileAttach(this, '${id}')">
+          </div>
+          <!-- hidden: stores base64 for images (thumbnail shown in PDF only) -->
+          <input type="hidden" class="jo-filedata" id="fileData${id}" value="${escHtml(saved?.fileData||'')}">
+        </div>
+        <div class="ir-other">
+          <div class="ir-field-label">Other Details</div>
+          <input type="text" placeholder="" class="jo-other"
+                 value="${escHtml(saved?.otherDetails||'')}" autocomplete="off">
+        </div>
+        <button class="btn-remove-item" onclick="removeItemFromGroup(${id})" title="Remove">🗑</button>
+      </div>`;
+
+    container.appendChild(wrap);
+    renumberGroup(gid);
+    return id;
+  }
+
+  function removeItemFromGroup(itemId) {
+    const el = document.getElementById('joItem' + itemId);
+    if (!el) return;
+    // find parent group
+    const group = el.closest('.quote-group');
+    el.remove();
+    if (group) renumberGroup(parseInt(group.id.replace('qgroup-', '')));
+  }
+
+  function renumberGroup(gid) {
+    const container = document.getElementById('qgitems-' + gid);
+    if (!container) return;
+    container.querySelectorAll('.item-wrapper').forEach((w, i) => {
+      const numEl = w.querySelector('.ir-num');
+      if (numEl) numEl.textContent = i + 1;
+    });
+  }
+
+  /* ── Load Quote Modal ── */
+  let _cachedQuotes = null;
+
+  async function loadQuotesCache(force = false) {
+    if (_cachedQuotes && !force) return _cachedQuotes;
+    try {
+      const r = await fetch(`${API}/api/quotes`);
+      const raw = await r.json();
+      // Tag every snapshot with its own storeKey so downstream code can do
+      // an exact lookup — critical when two clients share the same ctrl number.
+      Object.keys(raw).forEach(k => { raw[k]._storeKey = k; });
+      _cachedQuotes = raw;
+    } catch { _cachedQuotes = {}; }
+    return _cachedQuotes;
+  }
+
+  async function openLoadQuoteModal() {
+    const client = document.getElementById('joClient').value.trim();
+    if (!client) { alert('Please select a client first.'); document.getElementById('joClient').focus(); return; }
+
+    document.getElementById('lqmCompanyLabel').textContent = client;
+    document.getElementById('lqmSearch').value = '';
+    document.getElementById('lqmBody').innerHTML = '<div class="history-empty">Loading…</div>';
+    document.getElementById('loadQuoteModal').classList.add('open');
+
+    await loadQuotesCache(true);
+    await loadJOs(true); // ensure JO cache is fresh for Ordered detection
+    renderLoadQuoteList();
+  }
+
+  function closeLoadQuoteModal() {
+    document.getElementById('loadQuoteModal').classList.remove('open');
+  }
+
+  document.getElementById('loadQuoteModal').addEventListener('click', function(e) {
+    if (e.target === this) closeLoadQuoteModal();
+  });
+
+  function getOrderedCtrlNums() {
+    // Returns a Set of quote ctrl nums used in any saved JO
+    const db = _cachedJOs || {};
+    const used = new Set();
+    Object.values(db).forEach(jo => {
+      (jo.usedQuotes || []).forEach(c => used.add(c));
+    });
+    return used;
+  }
+
+  function renderLoadQuoteList() {
+    const client  = document.getElementById('joClient').value.trim().toLowerCase();
+    const query   = (document.getElementById('lqmSearch').value || '').trim().toLowerCase();
+    const db      = _cachedQuotes || {};
+    const myName  = (_currentProfile?.name || '').trim().toLowerCase();
+    const ordered = getOrderedCtrlNums();
+    const body    = document.getElementById('lqmBody');
+
+    // Group by company key, pick latest snapshot per base control number
+    const byCtrl = {}; // controlNumber -> latest snapshot
+    Object.values(db).forEach(snap => {
+      // filter by current user
+      const qSales = (snap.salesName || '').trim().toLowerCase();
+      if (myName && qSales !== myName) return;
+      // filter by selected client
+      const qCompany = (snap.company || '').trim().toLowerCase();
+      if (qCompany !== client) return;
+
+      const ctrl = snap.controlNumber || '';
+      if (!ctrl) return;
+      // keep latest by lastSaved
+      if (!byCtrl[ctrl] || new Date(snap.lastSaved) > new Date(byCtrl[ctrl].lastSaved)) {
+        byCtrl[ctrl] = snap;
+      }
+    });
+
+    let entries = Object.entries(byCtrl); // [[ctrl, snap], ...]
+
+    // search filter
+    if (query) {
+      entries = entries.filter(([ctrl, snap]) => {
+        return ctrl.toLowerCase().includes(query)
+          || (snap.projectName || '').toLowerCase().includes(query);
+      });
+    }
+
+    // Sort newest first
+    entries.sort((a, b) => new Date(b[1].lastSaved) - new Date(a[1].lastSaved));
+
+    if (!entries.length) {
+      body.innerHTML = '<div class="history-empty">No quotes found for this client.</div>';
+      return;
+    }
+
+    body.innerHTML = entries.map(([ctrl, snap]) => {
+      const isOrdered   = ordered.has(ctrl);
+      const isLoaded    = _sessionLoadedCtrlNums.has(ctrl);
+      const projName    = snap.projectName || '(No project name)';
+      const dateStr     = snap.lastSaved
+        ? new Date(snap.lastSaved).toLocaleString('en-PH', {dateStyle:'medium', timeStyle:'short'})
+        : '—';
+      const itemCount   = (snap.items?.length || 0) + (snap.outsourceItems?.length || 0);
+      // Pass the storeKey (db key) so loadQuoteItems can do an exact lookup —
+      // passing only ctrl risks picking the wrong snapshot when two clients
+      // share the same control number (e.g. both have Q26_0001).
+      const storeKey  = snap._storeKey || ctrl;
+      const safeKey   = storeKey.replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;');
+      const safeCtrl  = ctrl.replace(/'/g, "\\'").replace(/"/g, '&quot;');
+
+      let btn;
+      if (isOrdered) {
+        btn = `<div class="btn-lqm-ordered">✓ Ordered</div>`;
+      } else {
+        btn = `<button class="btn-lqm-load" onclick="loadQuoteItems('${safeCtrl}','${safeKey}')">Load Items</button>`;
+      }
+
+      return `
+        <div class="lqm-quote-row">
+          <div class="lqm-ctrl">${ctrl}</div>
+          <div class="lqm-info">
+            <div class="lqm-project">${escHtml(projName)}</div>
+            <div class="lqm-meta">Quoted: ${dateStr} &nbsp;·&nbsp; ${itemCount} item${itemCount !== 1 ? 's' : ''}${isLoaded ? ' &nbsp;<span style="color:#e67e22;font-weight:bold;">● Loaded</span>' : ''}</div>
+          </div>
+          ${btn}
+        </div>`;
+    }).join('');
+  }
+
+  function loadQuoteItems(ctrl, storeKey) {
+    if (_sessionLoadedCtrlNums.has(ctrl)) {
+      if (!confirm(`"${ctrl}" is already loaded in this JO. Load again?`)) return;
+    }
+
+    const db = _cachedQuotes || {};
+
+    // Prefer exact storeKey lookup — avoids picking the wrong client's snapshot
+    // when two clients happen to share the same control number (e.g. Q26_0001).
+    let snap = storeKey ? db[storeKey] : null;
+
+    // Fallback: find latest snapshot matching ctrl + current client
+    if (!snap) {
+      const client = (document.getElementById('joClient').value || '').trim().toLowerCase();
+      Object.values(db).forEach(s => {
+        if (s.controlNumber !== ctrl) return;
+        const sCompany = (s.company || '').trim().toLowerCase();
+        if (client && sCompany !== client) return;
+        if (!snap || new Date(s.lastSaved) > new Date(snap.lastSaved)) snap = s;
+      });
+    }
+
+    if (!snap) return;
+
+    // Combine in-house + outsource items (skip flatRateItems)
+    const sourceItems = [...(snap.items || []), ...(snap.outsourceItems || [])];
+    const mappedItems = sourceItems.map(it => ({
+      material: it.material || '',
+      sizeW:    it.sizeW    || '',
+      sizeH:    it.sizeH    || '',
+      sizeUnit: it.sizeUnit || 'ft',
+      qty:      it.qty      || 1,
+    }));
+
+    _sessionLoadedCtrlNums.add(ctrl);
+    addGroup({ ctrlNum: ctrl, projectName: snap.projectName || '', items: mappedItems });
+    closeLoadQuoteModal();
+  }
+
+  /* ── Collect all groups for snapshot ── */
+  function collectGroups() {
+    const groups = [];
+    document.querySelectorAll('#itemsContainer .quote-group').forEach(gEl => {
+      const gid      = parseInt(gEl.id.replace('qgroup-', ''));
+      const ctrlNum  = gEl.dataset.ctrlNum || '';
+      const projName = gEl.querySelector('.quote-proj-input')?.value || '';
+      const items    = [];
+      gEl.querySelectorAll('.item-wrapper').forEach(w => {
+        items.push({
+          media:        w.querySelector('.jo-media')?.value    || '',
+          sizeW:        w.querySelector('.jo-sizeW')?.value    || '',
+          sizeH:        w.querySelector('.jo-sizeH')?.value    || '',
+          sizeUnit:     w.querySelector('.jo-unit')?.value     || 'ft',
+          qty:          w.querySelector('.jo-qty')?.value      || 1,
+          eco:          w.querySelector('.jo-eco')?.checked    || false,
+          uv:           w.querySelector('.jo-uv')?.checked     || false,
+          plot:         w.querySelector('.jo-plot')?.checked   || false,
+          laser:        w.querySelector('.jo-laser')?.checked  || false,
+          filename:     w.querySelector('.jo-filename')?.value || '',
+          fileData:     w.querySelector('.jo-filedata')?.value || '',
+          otherDetails: w.querySelector('.jo-other')?.value    || '',
+        });
+      });
+      groups.push({ ctrlNum, projectName: projName, items });
+    });
+    return groups;
+  }
+
+  function escHtml(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function handleFileAttach(inp, itemId) {
+    if (!inp.files || !inp.files[0]) return;
+    const file = inp.files[0];
+    const nameEl = document.getElementById('filenameDisplay' + itemId);
+    const dataEl = document.getElementById('fileData' + itemId);
+    if (nameEl) nameEl.value = file.name;
+    inp.value = '';
+
+    // Images: downscale to thumbnail (max 400px) before storing — keeps payload small
+    if (file.type.startsWith('image/')) {
+      const MAX = 400;
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          let w = img.width, h = img.height;
+          if (w > MAX || h > MAX) {
+            if (w > h) { h = Math.round(h * MAX / w); w = MAX; }
+            else       { w = Math.round(w * MAX / h); h = MAX; }
+          }
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          if (dataEl) dataEl.value = canvas.toDataURL('image/jpeg', 0.82);
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    } else {
+      // Non-image: just store filename
+      if (dataEl) dataEl.value = '';
+    }
+  }
+
+  function collectItems() {
+    // flat list of all items across all groups (for validation/preview)
+    const groups = collectGroups();
+    return groups.flatMap(g => g.items);
+  }
+
+  function captureSnapshot() {
+    const groups = collectGroups();
+    return {
+      joNumber:             document.getElementById('joNumber').value.trim(),
+      dateRaw:              document.getElementById('joDate').value,
+      timeRaw:              (function(){ const n=new Date(); let h=n.getHours(),m=n.getMinutes(),s=n.getSeconds(),a=h>=12?'PM':'AM'; h=h%12||12; return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} ${a}`; })(),
+      client:               document.getElementById('joClient').value.trim(),
+      issuedBy:             document.getElementById('joIssuedBy').value.trim(),
+      deadline:             document.getElementById('joDeadline').value.trim(),
+      specialInstructions:  document.getElementById('joSpecialInstructions').value.trim(),
+      salesName:            _currentProfile?.name || '',
+      createdAt:            new Date().toISOString(),
+      lastSaved:            new Date().toISOString(),
+      groups,
+      usedQuotes:           [..._sessionLoadedCtrlNums],
+      items:                groups.flatMap(g => g.items), // flat list for legacy compat
+    };
+  }
+
+  function restoreSnapshot(snap) {
+    document.getElementById('joNumber').value              = snap.joNumber || '';
+    document.getElementById('joDate').value                = snap.dateRaw || '';
+    document.getElementById('joIssuedBy').value            = snap.issuedBy || '';
+    document.getElementById('joDeadline').value            = snap.deadline || '';
+    document.getElementById('joSpecialInstructions').value = snap.specialInstructions || '';
+
+    // Reload dropdown and restore the saved client selection
+    loadClientDropdown(snap.client || '');
+
+    document.getElementById('itemsContainer').innerHTML = '';
+    _groupCount = 0;
+    _itemCount  = 0;
+    _sessionLoadedCtrlNums = new Set(snap.usedQuotes || []);
+
+    if (snap.groups && snap.groups.length) {
+      snap.groups.forEach(g => addGroup(g));
+    } else if (snap.items && snap.items.length) {
+      // legacy: flat items → one standalone group
+      addGroup({ items: snap.items });
+    } else {
+      // empty
+    }
+    refreshJoDisplay();
+    _loadedStoreKey = null;
+  }
+
+  /* ── Dev mode profile switcher ── */
+  function toggleDevDropdown() {
+    if (!isDevMode()) return;
+    const dd = document.getElementById('devProfileDropdown');
+    dd.classList.toggle('open');
+    if (dd.classList.contains('open') && !window._joDevProfiles) loadJoDevProfiles();
+  }
+
+  // Close on outside click
+  document.addEventListener('click', function(e) {
+    const dd  = document.getElementById('devProfileDropdown');
+    const blk = document.getElementById('sessionInfoBlock');
+    if (dd && !dd.contains(e.target) && !blk.contains(e.target)) dd.classList.remove('open');
+  });
+
+  async function loadJoDevProfiles() {
+    const list = document.getElementById('devProfileList');
+    try {
+      const r = await fetch(`${API}/api/profiles`);
+      const profiles = await r.json();
+      window._joDevProfiles = {};
+      profiles.forEach(p => { window._joDevProfiles[p.id] = p; });
+
+      list.innerHTML = '';
+
+      // "All / Dev User" row
+      const allRow = document.createElement('div');
+      allRow.className = 'dev-profile-item';
+      allRow.innerHTML = '<div class="dev-avatar-sm all">∞</div>'
+        + '<div><div style="font-weight:bold;color:#7f5af0;">All (Dev User)</div>'
+        + '<div style="font-size:11px;color:#aaa;">Show all clients</div></div>';
+      allRow.onclick = () => devSwitchJoProfile('__dev__');
+      list.appendChild(allRow);
+
+      profiles.forEach(p => {
+        const row = document.createElement('div');
+        row.className = 'dev-profile-item';
+        row.innerHTML = `<div class="dev-avatar-sm">${(p.name||'?')[0].toUpperCase()}</div>`
+          + `<div><div style="font-weight:bold;">${p.name||''}</div>`
+          + `<div style="font-size:11px;color:#888;">${p.position||''}</div></div>`;
+        row.onclick = () => devSwitchJoProfile(p.id);
+        list.appendChild(row);
+      });
+    } catch {
+      list.innerHTML = '<div style="padding:10px 14px;font-size:12px;color:#e74c3c;">Error loading profiles</div>';
+    }
+  }
+
+  function devSwitchJoProfile(id) {
+    let p;
+    if (id === '__dev__') {
+      p = { id: '__dev__', name: 'Dev User', position: 'Developer' };
+    } else {
+      p = window._joDevProfiles && window._joDevProfiles[id];
+      if (!p) return;
+    }
+    _currentProfile = p;
+    sessionStorage.setItem('lp_session', JSON.stringify(p));
+    const initials = (p.name||'?').split(' ').map(w=>w[0]).slice(0,2).join('').toUpperCase();
+    document.getElementById('sessionAvatar').textContent = initials;
+    document.getElementById('sessionName').textContent   = p.name + ' ▾';
+    document.getElementById('sessionRole').textContent   = p.position || '';
+    document.getElementById('joIssuedBy').value          = p.name || '';
+    document.getElementById('devProfileDropdown').classList.remove('open');
+    loadClientDropdown(); // reload client dropdown for switched profile
+  }
+
+  /* ── Server / persistence ── */
+  let _cachedJOs   = null;
+  let _loadedStoreKey = null;
+
+  async function loadJOs(force = false) {
+    if (_cachedJOs && !force) return _cachedJOs;
+    try {
+      const r = await fetch(`${API}/api/joborders`);
+      _cachedJOs = await r.json();
+    } catch { _cachedJOs = {}; }
+    return _cachedJOs;
+  }
+
+  async function saveJO(storeKey, snapshot) {
+    await fetch(`${API}/api/joborders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ storeKey, snapshot })
+    });
+    if (_cachedJOs) _cachedJOs[storeKey] = snapshot;
+  }
+
+  async function deleteJOFromServer(storeKey) {
+    await fetch(`${API}/api/joborders/${encodeURIComponent(storeKey)}`, { method: 'DELETE' });
+    if (_cachedJOs) delete _cachedJOs[storeKey];
+  }
+
+  /* ── Preview PDF (no save, no Drive write) ── */
+  async function previewJO() {
+    const joNum  = document.getElementById('joNumber').value.trim();
+    const client = document.getElementById('joClient').value.trim();
+    const items  = collectItems();
+
+    if (!joNum)        { alert('Please enter a JO Number.'); document.getElementById('joNumber').focus(); return; }
+    if (!client)       { alert('Please enter a Client name.'); document.getElementById('joClient').focus(); return; }
+    if (!items.length) { alert('Add at least one item.'); return; }
+
+    document.getElementById('loading').classList.add('show');
+    try {
+      const snap    = captureSnapshot();
+      const payload = { ...snap, skipDriveSave: true };
+
+      const response = await fetch(`${API}/api/generate-joborder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error(await response.text().catch(() => 'Failed to generate preview'));
+
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match       = disposition.match(/filename="([^"]+)"/);
+      const filename    = match ? match[1] : `PREVIEW JO26-${joNum} ${client}.pdf`;
+
+      const blob = await response.blob();
+      const url  = window.URL.createObjectURL(new File([blob], filename, { type: 'application/pdf' }));
+      window.open(url, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(url), 30000);
+
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      document.getElementById('loading').classList.remove('show');
+    }
+  }
+
+  /* ── Generate PDF ── */
+  async function generateJO() {
+    const joNum  = document.getElementById('joNumber').value.trim();
+    const client = document.getElementById('joClient').value.trim();
+    const items  = collectItems();
+
+    if (!joNum)   { alert('Please enter a JO Number.'); document.getElementById('joNumber').focus(); return; }
+    if (!client)  { alert('Please enter a Client name.'); document.getElementById('joClient').focus(); return; }
+    if (!items.length) { alert('Add at least one item.'); return; }
+
+    document.getElementById('loading').classList.add('show');
+    try {
+      // Save to server first
+      const snap     = captureSnapshot();
+      const storeKey = `JO26-${joNum}|${client.toLowerCase().trim()}`;
+      snap.lastSaved = new Date().toISOString();
+      await saveJO(storeKey, snap);
+      _loadedStoreKey = storeKey;
+
+      const payload = { ...snap, storeKey };
+
+      const response = await fetch(`${API}/api/generate-joborder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error(await response.text().catch(() => 'Failed to generate JO PDF'));
+
+      const disposition = response.headers.get('Content-Disposition') || '';
+      const match       = disposition.match(/filename="([^"]+)"/);
+      const filename    = match ? match[1] : `JO26-${joNum} ${client}.pdf`;
+
+      const blob      = await response.blob();
+      const namedFile = new File([blob], filename, { type: 'application/pdf' });
+      const url       = window.URL.createObjectURL(namedFile);
+      window.open(url, '_blank');
+      setTimeout(() => window.URL.revokeObjectURL(url), 30000);
+
+      // Success toast
+      const toast = document.createElement('div');
+      toast.style.cssText = 'position:fixed;bottom:24px;right:24px;background:#2ecc71;color:white;padding:14px 20px;border-radius:8px;font-size:14px;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.2);z-index:9999;max-width:320px;';
+      toast.innerHTML = `JO saved &amp; PDF opened!<br><span style="font-size:12px;font-weight:normal;opacity:0.9;">${filename}</span>`;
+      document.body.appendChild(toast);
+      setTimeout(() => toast.remove(), 5000);
+
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      document.getElementById('loading').classList.remove('show');
+    }
+  }
+
+  /* ── History modal ── */
+  async function openHistory() {
+    document.getElementById('historyModal').classList.add('open');
+    document.getElementById('historyList').innerHTML = '<div class="history-empty">Loading…</div>';
+    document.getElementById('historySearch').value = '';
+    await loadJOs(true);
+    renderHistory();
+  }
+
+  function closeHistory() {
+    document.getElementById('historyModal').classList.remove('open');
+  }
+
+  document.getElementById('historyModal').addEventListener('click', function(e) {
+    if (e.target === this) closeHistory();
+  });
+
+  function renderHistory() {
+    const db     = _cachedJOs || {};
+    const list   = document.getElementById('historyList');
+    const countEl= document.getElementById('historyCount');
+    const query  = (document.getElementById('historySearch').value || '').trim().toLowerCase();
+
+    const myName = (_currentProfile?.name || '').trim().toLowerCase();
+    let keys = Object.keys(db).filter(k => {
+      const s = db[k];
+      // filter to current rep
+      return !myName || (s.salesName || '').trim().toLowerCase() === myName;
+    });
+
+    if (query) {
+      keys = keys.filter(k => {
+        const s = db[k];
+        return [s.joNumber||'', s.client||'', k].join(' ').toLowerCase().includes(query);
+      });
+    }
+
+    // Sort newest first
+    keys.sort((a,b) => new Date(db[b].lastSaved) - new Date(db[a].lastSaved));
+
+    countEl.textContent = `${keys.length} job order${keys.length !== 1 ? 's' : ''}`;
+
+    if (!keys.length) {
+      list.innerHTML = `<div class="history-empty">${query ? `No JOs match "<strong>${query}</strong>".` : 'No saved job orders yet.'}</div>`;
+      return;
+    }
+
+    list.innerHTML = keys.map(k => {
+      const s    = db[k];
+      const safeK= k.replace(/'/g, "\\'");
+      const saved= new Date(s.lastSaved).toLocaleString('en-PH',{dateStyle:'medium',timeStyle:'short'});
+      return `
+        <div class="jo-history-item" onclick="loadJOFromHistory('${safeK}')">
+          <div class="jo-ctrl-tag">JO26-${s.joNumber||'????'}</div>
+          <div class="jo-hist-info">
+            <div class="jo-hist-client">${s.client||'(No client)'}</div>
+            <div class="jo-hist-meta">Saved: ${saved} &nbsp;·&nbsp; ${s.items?.length||0} item${(s.items?.length||0)!==1?'s':''}</div>
+          </div>
+          <button class="btn-delete-jo" title="Delete" onclick="event.stopPropagation();deleteJO('${safeK}')">🗑</button>
+        </div>`;
+    }).join('');
+  }
+
+  function loadJOFromHistory(storeKey) {
+    const db   = _cachedJOs || {};
+    const snap = db[storeKey];
+    if (!snap) return;
+    restoreSnapshot(snap);
+    _loadedStoreKey = storeKey;
+    closeHistory();
+  }
+
+  async function deleteJO(storeKey) {
+    const db   = _cachedJOs || {};
+    const snap = db[storeKey];
+    const label= snap ? `JO26-${snap.joNumber} – ${snap.client}` : storeKey;
+    if (!confirm(`Delete "${label}"? This cannot be undone.`)) return;
+    await deleteJOFromServer(storeKey);
+    renderHistory();
+  }
+
+  /* ── Sticky session bar ── */
+  (function() {
+    const bar    = document.getElementById('sessionBar');
+    const spacer = document.getElementById('sessionBarSpacer');
+    let barBottom = 0;
+    let triggered = false;
+
+    function measureBar() {
+      if (!triggered) {
+        barBottom = bar.getBoundingClientRect().bottom + (window.scrollY || window.pageYOffset);
+      }
+    }
+    window.addEventListener('load', measureBar);
+    window.addEventListener('resize', measureBar);
+
+    window.addEventListener('scroll', function() {
+      if (!barBottom) measureBar();
+      const scrollY = window.scrollY || window.pageYOffset;
+      if (!triggered && scrollY > barBottom) {
+        triggered = true;
+        spacer.style.height = bar.offsetHeight + 'px';
+        spacer.style.display = 'block';
+        bar.classList.add('is-sticky');
+      } else if (triggered && scrollY <= barBottom - 8) {
+        triggered = false;
+        bar.classList.remove('is-sticky');
+        spacer.style.display = 'none';
+        spacer.style.height = '0';
+      }
+    }, { passive: true });
+  })();
+
+  /* ── Init: empty state — user clicks Add Quote or Add Item ── */
+  // (no items added on load — user starts fresh)
+</script>
+</body>
+</html>

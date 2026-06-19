@@ -10,11 +10,10 @@ const crypto = require('crypto');
 const app = express();
 // Railway (and most PaaS) inject the port to listen on via process.env.PORT.
 const PORT = process.env.PORT || 3000;
-
 // ── Middleware (must be before routes) ───────────────────────────────────────
 app.use(compression());          // gzip everything (static files + JSON responses)
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));  // signature images can be large base64 strings
+app.use(express.json({ limit: '50mb' }));  // base64 images from JO items can be large
 app.use(express.static('public'));
 
 // ── Storage paths ─────────────────────────────────────────────────────────────
@@ -234,45 +233,492 @@ app.delete('/api/serials/:companyKey', async (req, res) => {
     }
 });
 
+// ── JOB ORDERS API ────────────────────────────────────────────────────────────
+
+const JO_FILE = path.join(DRIVE_FOLDER, 'lp_joborders.json');
+
+// GET all job orders
+app.get('/api/joborders', async (req, res) => {
+    const db = await withFileLock(JO_FILE, () => readJSON(JO_FILE));
+    res.json(db);
+});
+
+// POST save/update a job order
+app.post('/api/joborders', async (req, res) => {
+    try {
+        const { storeKey, snapshot } = req.body;
+        if (!storeKey || !snapshot) return res.status(400).json({ error: 'Missing storeKey or snapshot' });
+
+        await withFileLock(JO_FILE, async () => {
+            const db = await readJSON(JO_FILE);
+            if (db[storeKey] && db[storeKey].createdAt) snapshot.createdAt = db[storeKey].createdAt;
+            snapshot.lastSaved = new Date().toISOString();
+            db[storeKey] = snapshot;
+            await writeJSON(JO_FILE, db);
+        });
+
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// DELETE a job order
+app.delete('/api/joborders/:storeKey', async (req, res) => {
+    try {
+        const storeKey = decodeURIComponent(req.params.storeKey);
+        let snap = null;
+        await withFileLock(JO_FILE, async () => {
+            const db = await readJSON(JO_FILE);
+            snap = db[storeKey] || null;
+            delete db[storeKey];
+            await writeJSON(JO_FILE, db);
+        });
+
+        // Try deleting the associated PDF if it was saved
+        if (snap?.pdfPath) {
+            try { if (fs.existsSync(snap.pdfPath)) fs.unlinkSync(snap.pdfPath); } catch {}
+        }
+
+        res.json({ ok: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// POST generate job order PDF
+app.post('/api/generate-joborder', async (req, res) => {
+    let page = null;
+    try {
+        const data = req.body;
+
+        if (!data.joNumber) return res.status(400).send('JO Number is required.');
+        if (!data.client)   return res.status(400).send('Client name is required.');
+
+        // Flatten all items from quote groups
+        const allItems = [];
+        (data.groups || []).forEach(group => {
+            (group.items || []).forEach(item => {
+                allItems.push({ ...item, projectName: group.projectName || '', ctrlNum: group.ctrlNum || '' });
+            });
+        });
+        if (!allItems.length) return res.status(400).send('Add at least one item.');
+
+        const logoBase64 = getLogoBase64();
+
+        // Format date
+        let displayDate = data.dateRaw || data.date || '';
+        if (displayDate && displayDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            const [y, m, d] = displayDate.split('-');
+            const months = ['January','February','March','April','May','June',
+                            'July','August','September','October','November','December'];
+            displayDate = `${months[parseInt(m)-1]} ${parseInt(d)}, ${y}`;
+        }
+
+        const html = generateJobOrderHTML({
+            ...data,
+            allItems,
+            displayDate,
+            time: data.timeRaw || data.time || '',
+        }, logoBase64);
+
+        const pdfBuffer = await renderPDF(html);
+
+        const joNum    = data.joNumber || '0000';
+        const client   = (data.client || 'Client').replace(/[^a-z0-9_\- ]/gi, '_');
+        const filename = `JO26-${joNum} ${client}.pdf`;
+
+        // Save PDF to Drive (skip for preview)
+        if (!data.skipDriveSave) {
+            try {
+                const joFolder = path.join(DRIVE_FOLDER, 'JOB ORDERS');
+                if (!fs.existsSync(joFolder)) fs.mkdirSync(joFolder, { recursive: true });
+                const pdfPath = path.join(joFolder, filename);
+                fs.writeFileSync(pdfPath, pdfBuffer);
+
+                // Store pdfPath in the JO record
+                if (data.storeKey) {
+                    await withFileLock(JO_FILE, async () => {
+                        const db = await readJSON(JO_FILE);
+                        if (db[data.storeKey]) {
+                            db[data.storeKey].pdfPath = pdfPath;
+                            await writeJSON(JO_FILE, db);
+                        }
+                    }).catch(() => {});
+                }
+            } catch (saveErr) {
+                console.error(`[JO PDF SAVE] ❌ ${saveErr.message}`);
+            }
+        }
+
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.contentType('application/pdf');
+        res.send(pdfBuffer);
+
+    } catch (error) {
+        console.error('[generate-joborder]', error);
+        res.status(500).send('Error generating JO PDF: ' + error.message);
+    }
+});
+
+function generateJobOrderHTML(data, logoBase64) {
+    const logoSrc = logoBase64 || '';
+
+    const COPY_THEMES = {
+        'SALES COPY':       { accentBg:'#519ef3', accentText:'#fff' },
+        'OPERATIONS COPY':  { accentBg:'#519ef3', accentText:'#fff' },
+        'ACCOUNTING COPY':  { accentBg:'#d500d5', accentText:'#fff' },
+        'PRINTING COPY':    { accentBg:'#f5c800', accentText:'#222' },
+        'FINISHING COPY':   { accentBg:'#888888', accentText:'#fff' },
+    };
+
+    const B = '#333';
+    const copies = ['SALES COPY','OPERATIONS COPY','ACCOUNTING COPY','PRINTING COPY','FINISHING COPY'];
+    const SIGS   = ['Operations Manager','Printing Personnel','Finishing Personnel','Accounting Personnel'];
+    const pageBreak = `<div style="page-break-before:always;"></div>`;
+
+    const buildPage = (copyLabel) => {
+        const th = COPY_THEMES[copyLabel] || COPY_THEMES['SALES COPY'];
+        const A = th.accentBg;
+        const T = th.accentText;
+
+        let itemRowsHTML = '';
+        let imageRefBoxes = [];   // one entry per group (even if no images)
+
+        (data.groups || []).forEach(group => {
+            const items = group.items || [];
+            if (!items.length) return;
+
+            const projDisplay = group.projectName
+                ? `PROJECT NAME: &nbsp;<strong>${group.projectName}</strong>`
+                : 'PROJECT NAME:';
+            const ctrlTag = (group.ctrlNum && group.ctrlNum !== '—')
+                ? `<span style="background:#1A2B45;color:#fff;border-radius:2px;padding:1px 6px;font-family:'Courier New',monospace;font-size:14px;margin-right:6px;">${group.ctrlNum}</span>`
+                : '';
+
+            itemRowsHTML += `
+            <tr>
+              <td colspan="12" style="background:${A};color:${T};font-weight:bold;font-size:16px;padding:4px 8px;border:1px solid ${B};">
+                ${ctrlTag}${projDisplay}
+              </td>
+            </tr>`;
+
+            // Build image ref box content for this group
+            let imgBoxContent = '';
+            items.forEach((item, localIdx) => {
+                const localSeq = localIdx + 1;
+                const hasImage = item.fileData && item.fileData.startsWith('data:image/');
+                if (hasImage || item.filename) {
+                    imgBoxContent += `
+                    <div style="margin-bottom:8px;border-top:${localIdx>0?'1px dashed #ddd':'none'};padding-top:${localIdx>0?'6px':'0'};">
+                      <div style="font-size:11px;font-weight:bold;margin-bottom:3px;">#${localSeq}${item.filename ? ' — ' + item.filename : ''}</div>
+                      ${hasImage ? `<img src="${item.fileData}" style="max-width:100%;max-height:90px;object-fit:contain;display:block;">` : '<div style="font-size:10px;color:#aaa;font-style:italic;">No image</div>'}
+                    </div>`;
+                }
+            });
+
+            imageRefBoxes.push({
+                projectName: group.projectName || '',
+                content: imgBoxContent
+            });
+
+            items.forEach((item, localIdx) => {
+                const localSeq = localIdx + 1;
+                const chk = (v) => v ? `<span style="font-size:16px;font-weight:bold;">&#10003;</span>` : '';
+                const uom = (item.sizeW || item.sizeH) ? (item.sizeUnit || 'ft') : '';
+
+                // File cell: thumbnail for images, filename text for others
+                let fileCell = '';
+                if (item.fileData && item.fileData.startsWith('data:image/')) {
+                    fileCell = `<div style="text-align:center;"><img src="${item.fileData}" style="max-height:36px;max-width:60px;object-fit:contain;display:block;margin:0 auto;"></div>`
+                             + `<div style="font-size:10px;word-break:break-all;text-align:center;color:#555;">${item.filename||''}</div>`;
+                } else {
+                    fileCell = item.filename || '';
+                }
+
+                itemRowsHTML += `
+                <tr style="height:28px;">
+                  <td style="text-align:center;border:1px solid ${B};font-size:14px;">${localSeq}</td>
+                  <td style="text-align:center;border:1px solid ${B};font-size:14px;">${item.sizeW||''}</td>
+                  <td style="text-align:center;border:1px solid ${B};font-size:14px;">${item.sizeH||''}</td>
+                  <td style="text-align:center;border:1px solid ${B};font-size:14px;">${uom}</td>
+                  <td style="vertical-align:middle;border:1px solid ${B};font-size:14px;padding:2px 4px;">${item.media||item.material||''}</td>
+                  <td style="text-align:center;border:1px solid ${B};font-size:14px;">${item.qty||''}</td>
+                  <td style="text-align:center;border:1px solid ${B};">${chk(item.eco)}</td>
+                  <td style="text-align:center;border:1px solid ${B};">${chk(item.uv)}</td>
+                  <td style="text-align:center;border:1px solid ${B};">${chk(item.plot)}</td>
+                  <td style="text-align:center;border:1px solid ${B};">${chk(item.laser)}</td>
+                  <td style="vertical-align:middle;border:1px solid ${B};padding:2px 4px;">${fileCell}</td>
+                  <td style="vertical-align:middle;border:1px solid ${B};font-size:14px;padding:2px 4px;">${item.otherDetails||''}</td>
+                </tr>`;
+            });
+        });
+
+        // Build IMAGE REFERENCES grid HTML (4 columns, n rows)
+        const COLS = 4;
+        let imageRefRowsHTML = '';
+        for (let i = 0; i < imageRefBoxes.length; i += COLS) {
+            const rowBoxes = imageRefBoxes.slice(i, i + COLS);
+            // If last row has < 4, pad with empty cells to center
+            const isEmpty = rowBoxes.length < COLS;
+            const padLeft  = isEmpty ? Math.floor((COLS - rowBoxes.length) / 2) : 0;
+            const padRight = isEmpty ? COLS - rowBoxes.length - padLeft : 0;
+            const cellW = `${(100/COLS).toFixed(2)}%`;
+
+            imageRefRowsHTML += `<tr>`;
+            for (let p = 0; p < padLeft; p++)  imageRefRowsHTML += `<td style="width:${cellW};border:1px solid ${B};padding:6px;"></td>`;
+            rowBoxes.forEach(box => {
+                imageRefRowsHTML += `
+                <td style="width:${cellW};border:1px solid ${B};padding:8px;vertical-align:top;">
+                  <div style="font-size:12px;font-weight:bold;margin-bottom:4px;">${box.projectName ? 'Project Name: ' + box.projectName : 'Project Name:'}</div>
+                  ${box.content || '<div style="font-size:10px;color:#bbb;font-style:italic;padding:4px 0;">No attachments</div>'}
+                </td>`;
+            });
+            for (let p = 0; p < padRight; p++) imageRefRowsHTML += `<td style="width:${cellW};border:1px solid ${B};padding:6px;"></td>`;
+            imageRefRowsHTML += `</tr>`;
+        }
+
+        for (let b = 0; b < 8; b++) {
+            const bd = 'border:1px solid ' + B + ';';
+            itemRowsHTML += '<tr style="height:22px;">'
+                + ('<td style="' + bd + '"></td>').repeat(12)
+                + '</tr>';
+        }
+
+        return `
+<div class="jo-page">
+
+  <!-- HEADER: logo centered | JOB ORDER accent | JO# + copy label merged accent -->
+  <table style="width:100%;border-collapse:collapse;border:2px solid ${B};">
+    <tr>
+      <td style="width:22%;padding:6px 8px;border-right:2px solid ${B};text-align:center;vertical-align:middle;">
+        ${logoSrc
+          ? `<img src="${logoSrc}" alt="Launchpad" style="max-height:40px;max-width:120px;object-fit:contain;display:block;margin:0 auto;">`
+          : `<span style="font-weight:900;font-size:18px;color:#1A2B45;">LAUNCHPAD</span>`}
+      </td>
+      <td style="text-align:center;font-size:20px;font-weight:900;letter-spacing:2px;
+                 padding:10px 4px;background:${A};color:${T};border-right:2px solid ${B};">
+        JOB ORDER
+      </td>
+      <td style="width:28%;background:${A};color:${T};padding:6px 10px;text-align:center;vertical-align:middle;">
+        <div style="font-size:18px;font-weight:900;letter-spacing:1px;font-family:'Courier New',monospace;">JO26-${data.joNumber || '____'}</div>
+        <div style="font-size:13px;font-weight:bold;margin-top:3px;letter-spacing:0.5px;">${copyLabel}</div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- CLIENT / DATE -->
+  <table style="width:100%;border-collapse:collapse;border:2px solid ${B};border-top:none;">
+    <tr>
+      <td style="width:10%;font-weight:bold;font-size:13px;padding:4px 6px;border-right:1px solid ${B};white-space:nowrap;">CLIENT:</td>
+      <td style="padding:4px 8px;border-right:2px solid ${B};font-size:14px;font-weight:bold;">${data.client||''}</td>
+      <td style="width:9%;font-weight:bold;font-size:13px;padding:4px 6px;border-right:1px solid ${B};white-space:nowrap;">DATE:</td>
+      <td style="padding:4px 8px;font-size:14px;">${data.displayDate||''}</td>
+    </tr>
+    <tr>
+      <td style="font-weight:bold;font-size:13px;padding:4px 6px;border-right:1px solid ${B};border-top:1px solid ${B};white-space:nowrap;">ISSUED BY:</td>
+      <td style="padding:4px 8px;border-right:2px solid ${B};border-top:1px solid ${B};font-size:14px;">${data.salesName||''}</td>
+      <td style="font-weight:bold;font-size:13px;padding:4px 6px;border-right:1px solid ${B};border-top:1px solid ${B};white-space:nowrap;">TIME:</td>
+      <td style="padding:4px 8px;border-top:1px solid ${B};font-size:14px;">${data.time||''}</td>
+    </tr>
+  </table>
+
+  <!-- ITEMS TABLE -->
+  <table style="width:100%;border-collapse:collapse;border:2px solid ${B};border-top:none;">
+    <thead>
+      <tr style="background:${A};color:${T};">
+        <th rowspan="2" style="width:4%;text-align:center;vertical-align:middle;padding:3px 1px;border:1px solid ${B};font-size:13px;">#</th>
+        <th colspan="3" style="text-align:center;padding:3px 1px;border:1px solid ${B};font-size:13px;">SIZE</th>
+        <th rowspan="2" style="width:22%;text-align:center;vertical-align:middle;padding:3px 2px;border:1px solid ${B};font-size:13px;">MEDIA</th>
+        <th rowspan="2" style="width:6%;text-align:center;vertical-align:middle;padding:3px 1px;border:1px solid ${B};font-size:13px;">QTY</th>
+        <th rowspan="2" style="width:5%;text-align:center;vertical-align:middle;padding:3px 1px;border:1px solid ${B};font-size:13px;">GZ</th>
+        <th rowspan="2" style="width:4%;text-align:center;vertical-align:middle;padding:3px 1px;border:1px solid ${B};font-size:13px;">UV</th>
+        <th rowspan="2" style="width:5%;text-align:center;vertical-align:middle;padding:3px 1px;border:1px solid ${B};font-size:13px;">PLOT</th>
+        <th rowspan="2" style="width:5%;text-align:center;vertical-align:middle;padding:3px 1px;border:1px solid ${B};font-size:13px;">LASER</th>
+        <th rowspan="2" style="width:13%;text-align:center;vertical-align:middle;padding:3px 2px;border:1px solid ${B};font-size:13px;">FILE NAME</th>
+        <th rowspan="2" style="text-align:center;vertical-align:middle;padding:3px 2px;border:1px solid ${B};font-size:13px;">OTHER DETAILS</th>
+      </tr>
+      <tr style="background:${A};color:${T};">
+        <th style="width:6%;text-align:center;padding:2px 1px;border:1px solid ${B};font-size:13px;">W</th>
+        <th style="width:6%;text-align:center;padding:2px 1px;border:1px solid ${B};font-size:13px;">H</th>
+        <th style="width:6%;text-align:center;padding:2px 1px;border:1px solid ${B};font-size:13px;">UOM</th>
+      </tr>
+    </thead>
+    <tbody>${itemRowsHTML}</tbody>
+  </table>
+
+  <!-- IMAGE REFERENCES — 4-column grid, 1 box per group -->
+  <table style="width:100%;border-collapse:collapse;border:2px solid ${B};border-top:none;">
+    <tr>
+      <td colspan="4" style="background:${A};color:${T};font-weight:bold;font-size:13px;letter-spacing:1px;
+                 text-transform:uppercase;text-align:center;padding:3px 6px;border-bottom:1px solid ${B};">
+        IMAGE REFERENCES
+      </td>
+    </tr>
+    ${imageRefRowsHTML}
+  </table>
+
+  <!-- SCHEDULE / DELIVERY — content bold, centered, larger font -->
+  <table style="width:100%;border-collapse:collapse;border:2px solid ${B};border-top:none;">
+    <tr>
+      <td style="background:${A};color:${T};font-weight:bold;font-size:13px;letter-spacing:1px;
+                 text-transform:uppercase;text-align:center;padding:3px 6px;border-bottom:1px solid ${B};">
+        SCHEDULE / DELIVERY
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:10px 12px;font-size:16px;font-weight:bold;text-align:center;min-height:44px;">
+        ${data.deadline || '&nbsp;'}
+      </td>
+    </tr>
+  </table>
+
+  <!-- GENERAL REMARKS — content bold, centered, larger font -->
+  <table style="width:100%;border-collapse:collapse;border:2px solid ${B};border-top:none;">
+    <tr>
+      <td style="background:${A};color:${T};font-weight:bold;font-size:13px;letter-spacing:1px;
+                 text-transform:uppercase;text-align:center;padding:3px 6px;border-bottom:1px solid ${B};">
+        GENERAL REMARKS
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:10px 12px;font-size:16px;font-weight:bold;text-align:center;min-height:44px;">
+        ${data.specialInstructions || '&nbsp;'}
+      </td>
+    </tr>
+  </table>
+
+  <!-- SIGNATURES — all black, no accent color, no ink waste -->
+  <table style="width:100%;border-collapse:collapse;border:2px solid ${B};border-top:none;">
+    <tr>
+      ${SIGS.map((name, i) => `
+      <td style="width:25%;${i < SIGS.length-1 ? `border-right:1px solid ${B};` : ''}
+                 padding:6px 8px 5px;text-align:center;vertical-align:bottom;">
+        <div style="font-size:11px;color:#333;text-align:left;margin-bottom:18px;">Received by:</div>
+        <div style="border-bottom:1px solid #333;margin:0 6px 3px;"></div>
+        <div style="font-size:11px;color:#333;">
+          <strong>${name}</strong>&nbsp;|&nbsp;Name &amp; Date
+        </div>
+      </td>`).join('')}
+    </tr>
+  </table>
+
+</div>`;
+    };
+
+    return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:Calibri,'Calibri',Arial,sans-serif; color:#000; background:white; }
+  .jo-page { width:7.27in; margin:0 auto; padding:0; }
+  table td, table th { vertical-align:middle; }
+</style>
+</head>
+<body>
+  ${copies.map((label, i) => (i > 0 ? pageBreak : '') + buildPage(label)).join('')}
+</body>
+</html>`;
+}
+
 // ── Puppeteer: one shared browser instance ────────────────────────────────────
-// Launching Chromium from scratch (the original behavior) takes ~1-2s on its
-// own, on top of actual render time — meaning every single PDF request paid a
-// multi-second "cold start" tax. Instead we launch the browser once and reuse
-// it for the life of the process; each request just opens (and closes) a
-// cheap new tab. If the browser ever crashes/disconnects, the next request
+// We launch the browser once and reuse it; each request opens and closes a
+// cheap new tab. If the browser crashes/disconnects the next request
 // transparently relaunches it.
+//
+// FIX: The previous implementation had a race condition. If the browser crashed
+// while two requests were in-flight, both would see (browserInstance=null,
+// browserLaunching=null) simultaneously and each would start its own Chromium
+// launch. The second launch could clash with the first's still-connecting
+// WebSocket, causing "Target closed / Protocol error" on the retry path.
+//
+// Solution: serialize ALL launch attempts through a single Mutex so only one
+// launch can run at a time. Concurrent callers wait on the same promise.
 let browserInstance = null;
-let browserLaunching = null;
+const browserMutex = new Mutex();
 
 function isBrowserAlive(b) {
     if (!b) return false;
-    // .isConnected() was added in Puppeteer v5.3.0 — fall back to process check
     if (typeof b.isConnected === 'function') return b.isConnected();
     try { return b.process() !== null; } catch { return false; }
 }
 
+const PUPPETEER_ARGS = [
+    '--no-sandbox', '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage', '--disable-gpu',
+    '--memory-pressure-off',
+];
+
 async function getBrowser() {
+    // Fast path: browser is alive, no lock needed.
     if (isBrowserAlive(browserInstance)) return browserInstance;
-    if (browserLaunching) return browserLaunching;
 
-    browserLaunching = puppeteer.launch({
-        headless: 'new',
-        // --disable-dev-shm-usage avoids crashes in containers with a small /dev/shm (Railway/Docker).
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
-        // Let Railway/Nixpacks point at a system Chromium via PUPPETEER_EXECUTABLE_PATH.
-        // Falls back to Puppeteer's own bundled Chromium when unset.
-        executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined
-    }).then(browser => {
+    // Slow path: serialize through mutex so concurrent requests share one launch.
+    return browserMutex.run(async () => {
+        // Re-check inside the lock — another waiter may have launched already.
+        if (isBrowserAlive(browserInstance)) return browserInstance;
+
+        // Close any zombie instance before launching a new one.
+        if (browserInstance) {
+            await browserInstance.close().catch(() => {});
+            browserInstance = null;
+        }
+
+        const browser = await puppeteer.launch({
+            headless: true,   // 'new' is deprecated in Puppeteer ≥22; true is the correct value
+            args: PUPPETEER_ARGS,
+            executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+        });
+
         browserInstance = browser;
-        browser.on('disconnected', () => { browserInstance = null; });
-        browserLaunching = null;
+        browser.on('disconnected', () => {
+            console.warn('[Browser] Disconnected — will relaunch on next request.');
+            browserInstance = null;
+        });
         return browser;
-    }).catch(err => {
-        browserLaunching = null;
-        throw err;
     });
+}
 
-    return browserLaunching;
+// ── renderPDF: wraps page lifecycle + retries once on browser crash ───────────
+async function renderPDF(html, pdfOptions) {
+    pdfOptions = pdfOptions || {
+        format: 'A4',
+        printBackground: true,
+        margin: { top: '0.3in', right: '0.3in', bottom: '0.3in', left: '0.3in' }
+    };
+
+    async function attempt() {
+        const browser = await getBrowser();
+        const page = await browser.newPage();
+        try {
+            await page.setContent(html, { waitUntil: 'load', timeout: 60000 });
+            return await page.pdf(pdfOptions);
+        } finally {
+            await page.close().catch(() => {});
+        }
+    }
+
+    try {
+        return await attempt();
+    } catch (err) {
+        const isRecoverable = err.message && (
+            err.message.includes('Target closed') ||
+            err.message.includes('Session closed') ||
+            err.message.includes('Protocol error')
+        );
+        if (isRecoverable) {
+            console.warn('[renderPDF] Browser error, forcing relaunch and retrying…', err.message);
+            // Force-clear so getBrowser() definitely launches a fresh instance.
+            if (browserInstance) {
+                await browserInstance.close().catch(() => {});
+                browserInstance = null;
+            }
+            return await attempt(); // one retry with a fresh browser
+        }
+        throw err;
+    }
 }
 
 // ── Logo: read from disk once, then serve from memory ─────────────────────────
@@ -354,19 +800,12 @@ app.post('/api/generate-quotation', async (req, res) => {
 
         const html = generateQuotationHTML(data, logoBase64);
 
-        const browser = await getBrowser();
-        page = await browser.newPage();
-        await page.setContent(html, { waitUntil: 'load' });
-
-        const pdfBuffer = await page.pdf({
+        const pdfBuffer = await renderPDF(html, {
             width: '8.5in',
             height: '13in',
             printBackground: true,
             margin: { top: '0.5in', right: '0.5in', bottom: '0.5in', left: '0.5in' }
         });
-
-        await page.close();
-        page = null;
 
         // ── Build filename: Q26_XXXX Company - Project Name (- RevN if revised) ──
         const ctrl        = data.controlNumber  || 'Q26_0000';
@@ -435,7 +874,7 @@ app.post('/api/generate-quotation', async (req, res) => {
         res.send(pdfBuffer);
 
     } catch (error) {
-        console.error(error);
+        console.error('[generate-quote]', error);
         res.status(500).send('Error generating PDF: ' + error.message);
     } finally {
         // If we threw before reaching page.close() above, make sure the tab

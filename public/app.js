@@ -139,8 +139,9 @@
             const serial = await peekNextSerial('');
             currentControlNumber = buildControlNumber(serial);
             currentRevision = 0;
-            _loadedStoreKey = null;   // starting fresh — no existing quote loaded
+            _loadedStoreKey = null;
             refreshCtrlDisplay();
+            resetLoadedMode();
         }
 
         /* Debounce helper */
@@ -187,7 +188,7 @@
                 const formulaInp = wrapper.querySelector('[id^="manualFormula"]:not([id^="manualFormulaR"])');
 
                 items.push({
-                    material:           row.querySelector('input.material').value,
+                    material:           row.querySelector('.material').value,
                     sizeW:              row.querySelector('input.sizeW').value,
                     sizeH:              row.querySelector('input.sizeH').value,
                     sizeUnit:           row.querySelector('input.sizeUnit').value,
@@ -204,7 +205,7 @@
             const flatRateItems = [];
             document.querySelectorAll('#flatRateItems .flat-item-row').forEach(row => {
                 flatRateItems.push({
-                    material:  row.querySelector('input.material').value,
+                    material:  row.querySelector('.material').value,
                     flatPrice: row.querySelector('input.flatPrice').value,
                     qty:       row.querySelector('input.qty').value,
                     computedUnitPrice: row.querySelector('input.flatPrice').value
@@ -218,7 +219,7 @@
                 const mults = [];
                 wrapper.querySelectorAll('.outMultVal').forEach(inp => mults.push(parseFloat(inp.value) || 1));
                 outsourceItems.push({
-                    material:   row.querySelector('input.material').value,
+                    material:   row.querySelector('.material').value,
                     sizeW:      row.querySelector('input.sizeW').value,
                     sizeH:      row.querySelector('input.sizeH').value,
                     sizeUnit:   row.querySelector('input.sizeUnit').value,
@@ -252,6 +253,52 @@
                 outsourceItems,
                 flatRateItems
             };
+        }
+
+        /* ── Loaded-mode: swap buttons when editing a saved quote ── */
+        function setLoadedMode() {
+            const btnGen = document.getElementById('btnGenerateQuote');
+            const btnOvr = document.getElementById('btnOverwrite');
+            const btnRev = document.getElementById('btnRevision');
+            if (btnGen) btnGen.style.display = 'none';
+            if (btnOvr) btnOvr.style.display = '';
+            if (btnRev) btnRev.style.display = '';
+        }
+        function resetLoadedMode() {
+            const btnGen = document.getElementById('btnGenerateQuote');
+            const btnOvr = document.getElementById('btnOverwrite');
+            const btnRev = document.getElementById('btnRevision');
+            if (btnGen) btnGen.style.display = '';
+            if (btnOvr) btnOvr.style.display = 'none';
+            if (btnRev) btnRev.style.display = 'none';
+        }
+
+        async function overwriteQuote() {
+            if (!_loadedStoreKey) { alert('No loaded quote to overwrite.'); return; }
+            if (!confirm('Overwrite this quote? The existing data will be replaced.')) return;
+            document.getElementById('loading').classList.add('show');
+            try { await _submitQuote({ forceStoreKey: _loadedStoreKey, forceRevision: currentRevision }); }
+            finally { document.getElementById('loading').classList.remove('show'); }
+        }
+
+        async function generateRevision() {
+            if (!_loadedStoreKey) { alert('No loaded quote to revise.'); return; }
+            document.getElementById('loading').classList.add('show');
+            try {
+                const db = await loadDB(true);
+                const parts = _loadedStoreKey.split('|');
+                const baseKey = parts[0] + '|' + parts[1];
+                const existingRevs = Object.keys(db).filter(k => k.startsWith(baseKey + '|rev'));
+                const maxRev = existingRevs.length > 0
+                    ? Math.max(...existingRevs.map(k => { const m = k.match(/\|rev(\d+)$/); return m ? parseInt(m[1]) : 0; }))
+                    : currentRevision;
+                const newRev = maxRev + 1;
+                const newStoreKey = baseKey + '|rev' + newRev;
+                await _submitQuote({ forceStoreKey: newStoreKey, forceRevision: newRev });
+                currentRevision = newRev;
+                _loadedStoreKey = newStoreKey;
+                refreshCtrlDisplay();
+            } finally { document.getElementById('loading').classList.remove('show'); }
         }
 
         function restoreSnapshot(snap) {
@@ -305,7 +352,7 @@
                     addFlatRateItem();
                     const fr = document.getElementById('flatRate' + flatRateCount);
                     if (fr) {
-                        fr.querySelector('input.material').value  = saved.material || '';
+                        fr.querySelector('.material').value  = saved.material || '';
                         fr.querySelector('input.flatPrice').value = saved.flatPrice || saved.computedUnitPrice || 0;
                         fr.querySelector('input.qty').value       = saved.qty || 1;
                     }
@@ -317,7 +364,7 @@
                 const wrapper = document.getElementById('item' + id);
                 const row     = wrapper.querySelector('.item-row');
 
-                row.querySelector('input.material').value  = saved.material  || '';
+                row.querySelector('.material').value  = saved.material  || '';
                 row.querySelector('input.sizeUnit').value  = saved.sizeUnit  || '';
                 row.querySelector('input.qty').value       = saved.qty       || 1;
                 row.querySelector('input.sizeW').value     = saved.sizeW     || '';
@@ -360,7 +407,7 @@
                 const wrapper = document.getElementById('outsource' + id);
                 const row     = wrapper.querySelector('.item-row');
 
-                row.querySelector('input.material').value  = saved.material || '';
+                row.querySelector('.material').value  = saved.material || '';
                 row.querySelector('input.sizeW').value     = saved.sizeW    || '';
                 row.querySelector('input.sizeH').value     = saved.sizeH    || '';
                 row.querySelector('input.sizeUnit').value  = saved.sizeUnit || '';
@@ -378,6 +425,11 @@
             restoreFlatRateItems(snap.flatRateItems);
             calculateTotals();
             refreshCtrlDisplay();
+            setLoadedMode();
+            // Auto-resize all material textareas after restore
+            document.querySelectorAll('.material').forEach(el => {
+                if (el.tagName === 'TEXTAREA') autoResizeTextarea(el);
+            });
         }
         function restoreFlatRateItems(snapItems) {
             document.getElementById('flatRateItems').innerHTML = '';
@@ -386,7 +438,7 @@
                 addFlatRateItem();
                 const row = document.getElementById('flatRate' + flatRateCount);
                 if (row) {
-                    row.querySelector('input.material').value  = saved.material  || '';
+                    row.querySelector('.material').value  = saved.material  || '';
                     row.querySelector('input.flatPrice').value = saved.flatPrice || saved.computedUnitPrice || 0;
                     row.querySelector('input.qty').value       = saved.qty       || 1;
                 }
@@ -592,7 +644,7 @@
                         : '';
 
                     // Delete button — visible to all users for their own quotes
-                    const deleteBtn = `<button class="btn-delete-hist" title="Delete this quote" onclick="deleteQuote(event,'${safeLatest}')">Delete</button>`;
+                    const deleteBtn = `<button class="btn-delete-hist" title="Delete this quote" onclick="event.stopPropagation();deleteQuote(event,'${safeLatest}')">🗑</button>`;
 
                     // Dev checkboxes
                     const checkboxHtml = devMode
@@ -616,7 +668,7 @@
                             ${devCb}
                             <span class="history-rev-label ${rvNum === 0 ? 'rev-original' : ''}">${rvLabel}</span>
                             <span class="history-rev-date">Saved: ${rvSaved}</span>
-                            <button class="btn-delete-hist" title="Delete" onclick="deleteQuote(event,'${safeRk}')">Delete</button>
+                            <button class="btn-delete-hist" title="Delete" onclick="event.stopPropagation();deleteQuote(event,'${safeRk}')">🗑</button>
                           </div>`;
                     }).join('') : '';
 
@@ -882,7 +934,7 @@
             const row = document.createElement('div');
             row.className = 'item-row';
             row.innerHTML = `
-                <input type="text" placeholder="Description" class="material">
+                <textarea placeholder="Description" class="material" rows="1" style="resize:none;overflow:hidden;"></textarea>
                 <div class="size-cell">
                     <div class="size-split">
                         <input type="number" step="any" min="0" placeholder="W" class="sizeW">
@@ -1042,11 +1094,13 @@
             const row = document.createElement('div');
             row.className = 'item-row';
             row.innerHTML = `
-                <input type="text" placeholder="Description (e.g. Buildup 60×60in)" class="material">
-                <div class="size-split">
-                    <input type="number" step="any" min="0" placeholder="W" class="sizeW">
-                    <span>×</span>
-                    <input type="number" step="any" min="0" placeholder="H" class="sizeH">
+                <textarea placeholder="Description (e.g. Buildup 60×60in)" class="material" rows="1" style="resize:none;overflow:hidden;"></textarea>
+                <div class="size-cell">
+                    <div class="size-split">
+                        <input type="number" step="any" min="0" placeholder="W" class="sizeW">
+                        <span>×</span>
+                        <input type="number" step="any" min="0" placeholder="H" class="sizeH">
+                    </div>
                 </div>
                 <input type="text" placeholder="in" class="sizeUnit" style="text-align:center;">
                 <input type="text" class="price" readonly value="" style="text-align:right;background:#fff8f3;color:#c0392b;font-weight:bold;border:1px solid #f0c09a;cursor:default;">
@@ -1127,8 +1181,8 @@
             row.className = 'flat-item-row';
             row.id = 'flatRate' + id;
             row.innerHTML = `
-                <input type="text" placeholder="e.g. Installation, Delivery" class="material"
-                    style="width:100%;height:38px;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:14px;">
+                <textarea placeholder="e.g. Installation, Delivery" class="material" rows="1"
+                    style="width:100%;min-height:38px;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:14px;resize:none;overflow:hidden;"></textarea>
                 <input type="number" step="any" min="0" placeholder="0.00" class="flatPrice"
                     style="width:100%;height:38px;padding:8px 10px;border:1px solid #ddd;border-radius:4px;font-size:14px;text-align:right;">
                 <input type="number" min="1" value="1" class="qty"
@@ -1248,17 +1302,18 @@
                     ? mults.reduce((acc, m) => acc * m, basePrice)
                     : basePrice;
 
-                const subtotal = unitPrice * qty;
+                const unitPriceRounded = Math.round(unitPrice * 100) / 100;
+                const subtotal = unitPriceRounded * qty;
 
-                row.querySelector('input.price').value = unitPrice > 0
-                    ? unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                row.querySelector('input.price').value = unitPriceRounded > 0
+                    ? unitPriceRounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                     : '';
 
                 const formulaEl = wrapper.querySelector('[id^="outFormula"]');
                 if (formulaEl) {
                     if (mults.length > 0) {
                         const chain = [basePrice, ...mults].join(' × ');
-                        formulaEl.textContent = `${chain} = ${unitPrice.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+                        formulaEl.textContent = `${chain} = ${unitPriceRounded.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
                     } else {
                         formulaEl.textContent = 'Base Price = Unit Price';
                     }
@@ -1299,104 +1354,18 @@
                     vatRow.style.display = 'none';
                 }
             }
+            // Update Grand Total label based on VAT exclusive toggle
+            const vatExChecked = document.getElementById('vatExclusiveCheck')?.checked;
+            const gtLabel = document.getElementById('grandTotalLabel');
+            if (gtLabel) gtLabel.textContent = vatExChecked ? 'Grand Total (VAT Ex):' : 'Grand Total:';
         }
 
-        /* ═══════════════════════════════════════════════════════
-           FORM SUBMIT → Generate PDF
-        ═══════════════════════════════════════════════════════ */
-        /* ── Dev: select-to-delete helpers ── */
-        function updateDeleteCount() {
-            const checked = document.querySelectorAll('.history-checkbox:checked');
-            const btn = document.getElementById('btnDeleteSelected');
-            const countEl = document.getElementById('deleteSelCount');
-            const n = checked.length;
-            if (btn) btn.disabled = n === 0;
-            if (countEl) countEl.textContent = n > 0 ? `${n} selected` : '';
-            // Sync select-all checkbox
-            const all = document.querySelectorAll('.history-checkbox');
-            const selAll = document.getElementById('selectAllCheck');
-            if (selAll) selAll.checked = all.length > 0 && checked.length === all.length;
-            // Highlight selected rows
-            document.querySelectorAll('.history-item').forEach(item => {
-                const cb = item.querySelector('.history-checkbox');
-                item.classList.toggle('selected', cb ? cb.checked : false);
-            });
-        }
-
-        function toggleSelectAll(masterCb) {
-            document.querySelectorAll('.history-checkbox').forEach(cb => cb.checked = masterCb.checked);
-            updateDeleteCount();
-        }
-
-        async function deleteSelected() {
-            const checked = Array.from(document.querySelectorAll('.history-checkbox:checked'));
-            if (!checked.length) return;
-            if (!confirm(`Delete ${checked.length} quote${checked.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
-            for (const cb of checked) {
-                await deleteQuoteFromServer(cb.dataset.key);
-            }
-            // Reset select-all + count
-            const selAll = document.getElementById('selectAllCheck');
-            if (selAll) selAll.checked = false;
-            const countEl = document.getElementById('deleteSelCount');
-            if (countEl) countEl.textContent = '';
-            const btn = document.getElementById('btnDeleteSelected');
-            if (btn) btn.disabled = true;
-            renderHistory();
-        }
-
-        /* ── Dev: select-to-delete helpers ── */
-        function updateDeleteCount() {
-            const checked = document.querySelectorAll('.history-checkbox:checked');
-            const btn = document.getElementById('btnDeleteSelected');
-            const countEl = document.getElementById('deleteSelCount');
-            const n = checked.length;
-            if (btn) btn.disabled = n === 0;
-            if (countEl) countEl.textContent = n > 0 ? `${n} selected` : '';
-            const all = document.querySelectorAll('.history-checkbox');
-            const selAll = document.getElementById('selectAllCheck');
-            if (selAll) selAll.checked = all.length > 0 && checked.length === all.length;
-            document.querySelectorAll('.history-item').forEach(item => {
-                const cb = item.querySelector('.history-checkbox');
-                item.classList.toggle('selected', cb ? cb.checked : false);
-            });
-        }
-
-        function toggleSelectAll(masterCb) {
-            document.querySelectorAll('.history-checkbox').forEach(cb => cb.checked = masterCb.checked);
-            updateDeleteCount();
-        }
-
-        async function deleteSelected() {
-            const checked = Array.from(document.querySelectorAll('.history-checkbox:checked'));
-            if (!checked.length) return;
-            if (!confirm(`Delete ${checked.length} quote${checked.length > 1 ? 's' : ''}? This cannot be undone.`)) return;
-            for (const cb of checked) await deleteQuoteFromServer(cb.dataset.key);
-            // Reset serials for any company that now has no quotes left
-            await syncSerialsAfterDelete();
-            // Also refresh peekNext so the control number display updates
-            const companyVal = document.getElementById('company').value;
-            if (companyVal) {
-                const serial = await peekNextSerial(companyVal);
-                currentControlNumber = buildControlNumber(serial);
-                currentRevision = 0;
-                refreshCtrlDisplay();
-            }
-            const selAll = document.getElementById('selectAllCheck');
-            if (selAll) selAll.checked = false;
-            const countEl = document.getElementById('deleteSelCount');
-            if (countEl) countEl.textContent = '';
-            const btn = document.getElementById('btnDeleteSelected');
-            if (btn) btn.disabled = true;
-            renderHistory();
-        }
 
         async function devResetSerials() {
             if (!confirm('Reset ALL serial counters back to zero?\nNext quote will start from Q26_0001 again.')) return;
             try {
                 const r = await fetch(`${API}/api/serials`, { method: 'DELETE' });
                 if (r.ok) {
-                    // Refresh the control number display
                     await initControlNumber();
                     alert('Serials reset! Next quote will be Q26_0001.');
                 } else {
@@ -1406,6 +1375,7 @@
                 alert('Server error.');
             }
         }
+
 
         /* Block Enter key from submitting — only allow if submit button is focused (via Tab) */
         document.getElementById('form').addEventListener('keydown', function(e) {
@@ -1462,92 +1432,90 @@
             renderHistory();
         }
 
-        async function devResetSerials() {
-            if (!confirm('Reset ALL serial counters back to zero?\nNext quote will start from Q26_0001 again.')) return;
-            try {
-                const r = await fetch(`${API}/api/serials`, { method: 'DELETE' });
-                if (r.ok) {
-                    // Refresh the control number display
-                    await initControlNumber();
-                    alert('Serials reset! Next quote will be Q26_0001.');
-                } else {
-                    alert('Error resetting serials.');
+
+        /* ── Ctrl+Enter adds line break in description textareas; auto-resize ── */
+        document.getElementById('form').addEventListener('keydown', function(e) {
+            if (e.target.classList.contains('material') && e.target.tagName === 'TEXTAREA') {
+                if (e.key === 'Enter' && e.ctrlKey) {
+                    e.preventDefault();
+                    const ta = e.target;
+                    const start = ta.selectionStart;
+                    const end   = ta.selectionEnd;
+                    ta.value = ta.value.slice(0, start) + '\n' + ta.value.slice(end);
+                    ta.selectionStart = ta.selectionEnd = start + 1;
+                    autoResizeTextarea(ta);
+                } else if (e.key === 'Enter' && !e.ctrlKey) {
+                    e.preventDefault();
                 }
-            } catch {
-                alert('Server error.');
             }
+        });
+
+        function autoResizeTextarea(ta) {
+            ta.style.height = 'auto';
+            ta.style.height = ta.scrollHeight + 'px';
         }
 
-        /* Block Enter key from submitting — only allow if submit button is focused (via Tab) */
-        document.getElementById('form').addEventListener('keydown', function(e) {
-            if (e.key === 'Enter') {
-                const active = document.activeElement;
-                if (!active || active.type !== 'submit') e.preventDefault();
+        document.getElementById('form').addEventListener('input', function(e) {
+            if (e.target.classList.contains('material') && e.target.tagName === 'TEXTAREA') {
+                autoResizeTextarea(e.target);
             }
         });
 
         document.getElementById('form').addEventListener('submit', async (e) => {
             e.preventDefault();
             document.getElementById('loading').classList.add('show');
+            await _submitQuote();
+            document.getElementById('loading').classList.remove('show');
+        });
 
+        async function _submitQuote(opts = {}) {
             const companyVal = document.getElementById('company').value;
 
-            // Validate bank details selection
             const bankSel = document.getElementById('bankDetailsSelect');
             if (!bankSel || !bankSel.value) {
                 alert('Please select at least one payment detail to include in the PDF.');
                 document.getElementById('bankDropdownBtn') && (document.getElementById('bankDropdownBtn').style.borderColor = '#e74c3c');
-                document.getElementById('loading').classList.remove('show');
                 return;
             }
 
-            // Warn if no in-house items, but allow proceeding with outsource-only quotes
             const inHouseCount = document.querySelectorAll('#items .item-wrapper').length;
             if (inHouseCount === 0) {
                 const proceed = confirm('No In-House Items added to this quote.\n\nProceed and generate the PDF with Outsource Items only?');
-                if (!proceed) {
-                    document.getElementById('loading').classList.remove('show');
-                    return;
+                if (!proceed) return;
+            }
+
+            let useStoreKey, useRevision;
+            if (opts.forceStoreKey !== undefined) {
+                useStoreKey = opts.forceStoreKey;
+                useRevision = opts.forceRevision;
+                currentRevision = useRevision;
+            } else {
+                const db = await loadDB(true);
+                let baseKey;
+                if (_loadedStoreKey) {
+                    const parts = _loadedStoreKey.split('|');
+                    baseKey = parts[0] + '|' + parts[1];
+                } else {
+                    baseKey = currentControlNumber + '|' + companyKey(companyVal);
                 }
+                const existingRevs = Object.keys(db).filter(k => k.startsWith(baseKey + '|rev'));
+                if (existingRevs.length > 0) {
+                    const maxRev = Math.max(...existingRevs.map(k => { const m = k.match(/\|rev(\d+)$/); return m ? parseInt(m[1]) : 0; }));
+                    currentRevision = maxRev + 1;
+                } else {
+                    const serial = await commitSerial(companyVal);
+                    currentControlNumber = buildControlNumber(serial);
+                    currentRevision = 0;
+                }
+                useStoreKey = baseKey + '|rev' + currentRevision;
+                useRevision = currentRevision;
+                _loadedStoreKey = useStoreKey;
             }
 
-            // Determine revision: if we loaded from an existing quote, scan by control+company prefix.
-            // Using _loadedStoreKey (set when opening from history) is reliable even if company name
-            // has spacing/capitalisation differences, because we derive the baseKey from the saved
-            // storeKey itself rather than re-computing it from the current form value.
-            const db = await loadDB(true);
-
-            let baseKey;
-            if (_loadedStoreKey) {
-                // Extract the "Q26_XXXX|companykey" prefix from the original store key
-                const parts = _loadedStoreKey.split('|');
-                baseKey = parts[0] + '|' + parts[1];   // e.g. "Q26_0003|acmecorp"
-            } else {
-                baseKey = currentControlNumber + '|' + companyKey(companyVal);
-            }
-
-            const existingRevs = Object.keys(db).filter(k => k.startsWith(baseKey + '|rev'));
-
-            if (existingRevs.length > 0) {
-                // Find highest revision number among existing entries
-                const maxRev = Math.max(...existingRevs.map(k => {
-                    const m = k.match(/\|rev(\d+)$/);
-                    return m ? parseInt(m[1]) : 0;
-                }));
-                currentRevision = maxRev + 1;
-            } else {
-                // New quote → commit serial on server
-                const serial = await commitSerial(companyVal);
-                currentControlNumber = buildControlNumber(serial);
-                currentRevision = 0;
-            }
-
-            // After committing, update _loadedStoreKey to the new base so subsequent
-            // re-submissions in the same session correctly detect further revisions.
-            _loadedStoreKey = baseKey + '|rev' + currentRevision;
-
-            // Save to Google Drive via server
-            await persistQuote(currentRevision);
+            const snap = captureSnapshot();
+            snap.revisions = useRevision;
+            snap.lastSaved = new Date().toISOString();
+            await saveQuote(useStoreKey, snap);
             refreshCtrlDisplay();
 
             const data = {
@@ -1580,7 +1548,7 @@
                 const row    = wrapper.querySelector('.item-row');
                 const computedUnitPrice = row.querySelector('input.price').value.replace(/,/g, '') || 0;
                 data.items.push({
-                    material:  row.querySelector('input.material').value,
+                    material:  row.querySelector('.material').value,
                     sizeW:     row.querySelector('input.sizeW').value || '',
                     sizeH:     row.querySelector('input.sizeH').value || '',
                     sizeUnit:  row.querySelector('input.sizeUnit').value,
@@ -1596,7 +1564,7 @@
                 const basePrice = parseFloat(wrapper.querySelector('input.outsourceBase').value) || 0;
                 const computedUnitPrice = row.querySelector('input.price').value.replace(/,/g, '') || 0;
                 data.outsourceItems.push({
-                    material:    row.querySelector('input.material').value,
+                    material:    row.querySelector('.material').value,
                     sizeW:       row.querySelector('input.sizeW').value || '',
                     sizeH:       row.querySelector('input.sizeH').value || '',
                     sizeUnit:    row.querySelector('input.sizeUnit').value,
@@ -1610,7 +1578,7 @@
             document.querySelectorAll('#flatRateItems .flat-item-row').forEach(row => {
                 const price = row.querySelector('input.flatPrice').value || 0;
                 data.flatRateItems.push({
-                    material:  row.querySelector('input.material').value,
+                    material:  row.querySelector('.material').value,
                     unitPrice: String(price).replace(/,/g, ''),
                     quantity:  row.querySelector('input.qty').value || 0
                 });
@@ -1652,10 +1620,8 @@
 
             } catch (err) {
                 alert(err.message);
-            } finally {
-                document.getElementById('loading').classList.remove('show');
             }
-        });
+        }
 
         /* ═══════════════════════════════════════════════════════
            DEV TOOLS — only visible with ?dev=1 in the URL.
@@ -1689,7 +1655,7 @@
             addItem();
             const wrapper = document.querySelector('#items .item-wrapper:last-child');
             const row = wrapper.querySelector('.item-row');
-            row.querySelector('input.material').value  = 'Tarpaulin Print';
+            row.querySelector('.material').value  = 'Tarpaulin Print';
             row.querySelector('input.sizeW').value     = '4';
             row.querySelector('input.sizeH').value     = '6';
             row.querySelector('input.sizeUnit').value  = 'ft';
@@ -1731,7 +1697,7 @@
                 document.querySelectorAll('#items .item-wrapper').forEach(wrapper => {
                     const row = wrapper.querySelector('.item-row');
                     data.items.push({
-                        material:  row.querySelector('input.material').value,
+                        material:  row.querySelector('.material').value,
                         sizeW:     row.querySelector('input.sizeW').value || '',
                         sizeH:     row.querySelector('input.sizeH').value || '',
                         sizeUnit:  row.querySelector('input.sizeUnit').value,
@@ -1745,7 +1711,7 @@
                     const mults = [];
                     wrapper.querySelectorAll('.outMultVal').forEach(inp => mults.push(parseFloat(inp.value) || 1));
                     data.outsourceItems.push({
-                        material:    row.querySelector('input.material').value,
+                        material:    row.querySelector('.material').value,
                         sizeW:       row.querySelector('input.sizeW').value || '',
                         sizeH:       row.querySelector('input.sizeH').value || '',
                         sizeUnit:    row.querySelector('input.sizeUnit').value,
@@ -1758,7 +1724,7 @@
 
                 document.querySelectorAll('#flatRateItems .flat-item-row').forEach(row => {
                     data.flatRateItems.push({
-                        material:  row.querySelector('input.material').value,
+                        material:  row.querySelector('.material').value,
                         unitPrice: String(row.querySelector('input.flatPrice').value || 0).replace(/,/g, ''),
                         quantity:  row.querySelector('input.qty').value || 0
                     });

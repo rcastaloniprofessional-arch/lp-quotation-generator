@@ -379,14 +379,15 @@ input:focus, select:focus { outline: none; border-color: #4A90E2; }
 ══════════════════════════════════════════ */
 
 .item-container { margin-bottom: 15px; width: 100%; }
+.section { overflow-x: auto; }
 
 /* Hide desktop headers on mobile */
 .item-header { display: none; }
 @media (min-width: 700px) {
     .item-header {
         display: grid;
-        grid-template-columns: 3fr 150px 80px 130px 75px 130px 40px;
-        gap: 10px;
+        grid-template-columns: 1fr 130px 70px 100px 60px 100px 36px;
+        gap: 6px;
         padding-bottom: 8px;
         border-bottom: 2px solid #4A90E2;
         margin-bottom: 8px;
@@ -419,8 +420,8 @@ input:focus, select:focus { outline: none; border-color: #4A90E2; }
 
 @media (min-width: 700px) {
     .item-row {
-        grid-template-columns: 3fr 150px 80px 130px 75px 130px 40px;
-        gap: 10px;
+        grid-template-columns: 1fr 130px 70px 100px 60px 100px 36px;
+        gap: 6px;
         margin-bottom: 4px;
     }
     .item-row > *:first-child { grid-column: auto; }
@@ -458,16 +459,20 @@ input:focus, select:focus { outline: none; border-color: #4A90E2; }
     .item-field-label { display: none; }
 }
 
-.item-row input, .flat-item-row input {
+.item-row input, .item-row textarea, .flat-item-row input, .flat-item-row textarea {
     width: 100%;
-    height: 40px;
+    min-height: 40px;
     padding: 8px 10px;
     border: 1px solid #ddd;
     border-radius: 4px;
     font-size: 14px;
     box-sizing: border-box;
+    font-family: inherit;
+    line-height: 1.4;
 }
-.item-row input:focus, .flat-item-row input:focus { outline: none; border-color: #4A90E2; }
+.item-row input:focus, .item-row textarea:focus,
+.flat-item-row input:focus, .flat-item-row textarea:focus { outline: none; border-color: #4A90E2; }
+textarea.material { resize: none; overflow: hidden; }
 
 .size-split { display: flex; align-items: center; gap: 4px; }
 .size-split input { flex: 1; width: 0; text-align: center; font-size: 14px; }
@@ -602,14 +607,10 @@ input.rowTotalAmount {
     font-size: 14px;
     background: white;
     cursor: pointer;
-    min-width: 200px;
     min-height: 44px;
     text-align: left;
     position: relative;
     width: 100%;
-}
-@media (min-width: 560px) {
-    #bankDropdownBtn { width: auto; }
 }
 
 /* ── Outsource items ── */
